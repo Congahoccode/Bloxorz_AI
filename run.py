@@ -63,7 +63,7 @@ def performance(solution, level, algorithm):
 
 def draw_path_3D(solution, timesleep=0.5, level=Level.lv1, map_size = (0,0)):
     pygame.init()
-    display = Display(title='Bloxorz Game', map_size=map_size)
+    display = Display(title='Bloxorz Game - Solution Replay', map_size=map_size)
     if solution != None:
         print("Success!")
         print("Step: %d" % len(solution))
@@ -76,7 +76,16 @@ def draw_path_3D(solution, timesleep=0.5, level=Level.lv1, map_size = (0,0)):
         display.update() 
 
         for path in solution:
-            time.sleep(timesleep)
+            # Poll window events during delay to keep window responsive
+            start_wait = time.time()
+            while time.time() - start_wait < timesleep:
+                for event in pygame.event.get():
+                    if Display.quit(event):
+                        print("Replay exited by user.")
+                        pygame.quit()
+                        return
+                pygame.time.wait(20)
+
             level.current = path
             level.update_box_locaton_for_maps(path)
             
@@ -84,11 +93,29 @@ def draw_path_3D(solution, timesleep=0.5, level=Level.lv1, map_size = (0,0)):
                 level.update_current_location()
             else: 
                 print("Solution Fail!")
+                pygame.quit()
                 return
 
             level.draw_box() 
             level.draw_maps()   
             display.update()
+
+        if level.check_goal():
+            print("WINNER!")
+
+        # Keep window responsive until user closes or after brief pause
+        wait_end = time.time() + 2.0
+        while time.time() < wait_end:
+            for event in pygame.event.get():
+                if Display.quit(event):
+                    pygame.quit()
+                    return
+            level.draw_box()
+            level.draw_maps()
+            display.update()
+            pygame.time.wait(30)
+
+        pygame.quit()
         return
     else:
         print("Unable to find path for maps!")
@@ -111,7 +138,6 @@ def draw_path_2D(solution, timesleep=0.5, level=Level.lv1):
             os.system("clear")
             level.current = path
             level.update_box_locaton_for_maps(path)
-            level.maps.refreshBox()
 
             if level.maps.refreshBox():
                 level.update_current_location()
@@ -121,6 +147,9 @@ def draw_path_2D(solution, timesleep=0.5, level=Level.lv1):
 
             level.print_maps()
             time.sleep(timesleep)
+
+        if level.check_goal():
+            print("WINNER!")
         return
     else:
         print("Unable to find path for maps!")

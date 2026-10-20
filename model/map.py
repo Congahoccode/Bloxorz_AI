@@ -1,7 +1,10 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """Map"""
-import simplejson as json
+try:
+    import simplejson as json
+except ImportError:
+    import json
 from model.sw import swO, swQ, swX
 from model.box import Box
 from model.bridge import Bridge
@@ -163,17 +166,23 @@ class maps:
         return self.current_box.is_standing() and self.current_box.is_doubleBox() and self.__is_goal()
      
     def __is_valid(self, box):
-        self.checkSWQ()
-        self.checkSWX()
+        # 1. Check tile validity first before triggering any switch
         if len(box.location) == 1:
-            y , x = box.location[0]
-            return self.maps[y][x].check_material_tile(box)
+            y, x = box.location[0]
+            if not self.maps[y][x].check_material_tile(box):
+                return False
         elif len(box.location) == 2:
             for child in box.location:
                 y, x = child
-                if not self.maps[y][x].check_material_tile(box): 
+                if not self.maps[y][x].check_material_tile(box):
                     return False
-            return True
+        else:
+            return False
+
+        # 2. Only trigger switches if the box safely landed on the floor
+        self.checkSWQ()
+        self.checkSWX()
+        return True
     
     def __onFloor(self, box):
         width, height = self.size
