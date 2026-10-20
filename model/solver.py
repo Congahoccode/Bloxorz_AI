@@ -25,8 +25,7 @@ def print_stack(stack, algorithm):
 def dfs_recursion(state: Control):
     if state.check_goal():
         return
-    current_state = state.sdfs_pathtack.pop()
-    current_maps = state.stack_maps.pop()
+    current_state, current_maps = state.stack.pop()
     state.visted.append((current_state, current_maps))
     for move in state.moves:
         state.set_state(current_state, current_maps)
@@ -39,6 +38,10 @@ def dfs_step_by_step(state: Control, timesleep=0.1):
     display = Display(title='Bloxorz Game', map_size=(state.size[0], state.size[1]))
 
     while state.stack:
+        for event in pygame.event.get():
+            if display.quit(event):
+                pygame.quit()
+                return None
         current_state, current_maps = state.stack.pop()
         
         print("POP: ( %s )" % current_state)
@@ -77,6 +80,10 @@ def bfs_step_by_step(state: Control, timesleep=0.2):
     display = Display(title='Bloxorz Game', map_size=(state.size[0], state.size[1]))
 
     while state.stack:
+        for event in pygame.event.get():
+            if display.quit(event):
+                pygame.quit()
+                return None
         current_state, current_maps = state.stack.pop(0)
 
         print("POP: ( %s )" % current_state)
@@ -265,35 +272,60 @@ def astar(state: Control):
     return astar_base(state, 'l1')
 
 
-def handle(state: Control, map_size= (0,0)):
+def handle(state: Control, map_size=(0, 0)):
     state.Play_handle = True
     pygame.init()
-    display = Display(title='Bloxorz Game', map_size=map_size)
+    display = Display(title='Bloxorz Game - Play Mode', map_size=map_size)
     result = True
-    print("Press Space Key to Exit!")
-    while True:
-        # os.system("clear")
-        for event in pygame.event.get():
-            if state.Play_handle:
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
-                    result = state.move_up()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
-                    result = state.move_down()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_RIGHT:
-                    result = state.move_right()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_LEFT:
-                    result = state.move_left()
-            print('\n'.join([''.join([str(y.type) for y in x]) for x in state.stack[-1][1]]))
-            if display.quit(event):
-                return
-        state.draw_maps()
-        state.draw_box()
-        # state.print_maps()
-        display.update()
+    print("Use Arrow Keys to move. Press ESC, Space, or Close Window to exit.")
+    clock = pygame.time.Clock()
 
-        if state.check_goal():
-            print("WINNER!")
-            return
-        if result == False:
-            print("LOSER!")
-            return
+    # Initial render
+    state.draw_maps()
+    state.draw_box()
+    display.update()
+
+    while True:
+        moved = False
+        for event in pygame.event.get():
+            if display.quit(event):
+                print("Exited game.")
+                pygame.quit()
+                return
+
+            if state.Play_handle and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    result = state.move_up()
+                    moved = True
+                elif event.key == pygame.K_DOWN:
+                    result = state.move_down()
+                    moved = True
+                elif event.key == pygame.K_RIGHT:
+                    result = state.move_right()
+                    moved = True
+                elif event.key == pygame.K_LEFT:
+                    result = state.move_left()
+                    moved = True
+
+        if moved:
+            state.draw_maps()
+            state.draw_box()
+            display.update()
+
+            if state.check_goal():
+                print("WINNER! Congratulations, you reached the goal!")
+                time.sleep(1.5)
+                pygame.quit()
+                return
+
+            if result == False:
+                print("LOSER! The block fell off the board.")
+                time.sleep(1.5)
+                pygame.quit()
+                return
+        else:
+            state.draw_maps()
+            state.draw_box()
+            display.update()
+
+        clock.tick(30)

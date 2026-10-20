@@ -73,7 +73,7 @@ class swO:
         self.location = location
         self.split = split
         self.box1 = box1
-        self.box1 = box2
+        self.box2 = box2
         self.active = 1
     
     def set_box1(self, symbol, state, location):
@@ -84,7 +84,7 @@ class swO:
 
     def change_active(self):
         if self.active != 1:
-            self.active == 1
+            self.active = 1
             self.box1.on()
             self.box2.off()
         else: 

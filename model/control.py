@@ -76,7 +76,7 @@ class Control:
 
     def update_current_location(self):
         self.current = self.maps.current_box.location
-        self.curr_maps == self.maps.maps
+        self.curr_maps = deepcopy(self.maps.maps)
         
     def update_box_locaton_for_maps(self, location):
         self.maps.current_box.location = location
@@ -88,7 +88,8 @@ class Control:
         self.current = state
         self.curr_maps = deepcopy(maps)
         self.maps.maps = self.curr_maps
-        self.maps.current_box.location = self.current
+        self.maps.current_box.location = deepcopy(self.current)
+        self.maps.current_box.pre_location = deepcopy(self.current)
         
     def get_state(self):
         return deepcopy(self.current)
