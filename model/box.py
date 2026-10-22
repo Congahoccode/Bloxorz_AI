@@ -168,13 +168,13 @@ class Box:
         self.active = False
     
     def is_horizontal(self):
-        return self.check_verti_or_hori() == Direction.horizontal
+        return self.is_doubleBox() and self.check_verti_or_hori() == Direction.horizontal
     
     def is_vertical(self):
-        return self.check_verti_or_hori() == Direction.vertical
+        return self.is_doubleBox() and self.check_verti_or_hori() == Direction.vertical
     
     def is_standing(self):
-        return len(self.location) == Direction.standing
+        return self.is_doubleBox() and len(self.location) == Direction.standing
             
     def is_singleBox(self):
         return self.state == 1
