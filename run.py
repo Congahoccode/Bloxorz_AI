@@ -6,12 +6,10 @@ import sys
 import os
 import time
 import tracemalloc
+import importlib
+import inspect
 from copy import deepcopy
-from model.solver import (
-    dfs_path, bfs_path, handle, hill_climbing,
-    dfs_step_by_step, bfs_step_by_step, astar, dijkstra,
-    solution_to_moves, format_moves
-)
+from model.solver import handle, solution_to_moves, format_moves
 from drawing.display import Display
 from drawing.gui_menu import GuiMenu
 from model.map import maps
@@ -20,27 +18,49 @@ import timeit
 
 
 class Algorithm:
-    DFS = 1
-    BFS = 2
-    HILL = 3
+    BFS = 1
+    DFS = 2
+    UCS = 3
     ASTAR = 4
-    DIJKSTRA = 5
 
 
 algorithm_names = {
-    1: 'DFS',
-    2: 'BFS',
-    3: 'HILL',
-    4: 'ASTAR',
-    5: 'DIJKSTRA'
+    1: 'BFS',
+    2: 'DFS',
+    3: 'UCS',
+    4: 'A*'
 }
 
 algorithm_by_str = {
-    'dfs': Algorithm.DFS,
     'bfs': Algorithm.BFS,
-    'hill': Algorithm.HILL,
+    'dfs': Algorithm.DFS,
+    'ucs': Algorithm.UCS,
     'astar': Algorithm.ASTAR,
-    'dijkstra': Algorithm.DIJKSTRA
+    'a_star': Algorithm.ASTAR,
+    'a*': Algorithm.ASTAR
+}
+
+ALGO_CONFIGS = {
+    Algorithm.BFS: {
+        'name': 'BFS',
+        'module_name': 'solver.bfs',
+        'candidates': ['solve', 'bfs', 'bfs_path', 'bfs_search', 'search']
+    },
+    Algorithm.DFS: {
+        'name': 'DFS',
+        'module_name': 'solver.dfs',
+        'candidates': ['solve', 'dfs', 'dfs_path', 'dfs_search', 'search']
+    },
+    Algorithm.UCS: {
+        'name': 'UCS',
+        'module_name': 'solver.ucs',
+        'candidates': ['solve', 'ucs', 'ucs_path', 'uniform_cost_search', 'ucs_search', 'search']
+    },
+    Algorithm.ASTAR: {
+        'name': 'A*',
+        'module_name': 'solver.a_star',
+        'candidates': ['solve', 'astar', 'a_star', 'astar_path', 'a_star_path', 'a_star_search', 'search']
+    }
 }
 
 
@@ -301,36 +321,125 @@ def draw_path_2D(solution, timesleep=0.60, level=Level.lv1, algo_name="Solver"):
 
 
 def run_solver(level_path, algorithm_enum):
-    """Run search algorithm with time and memory tracking."""
-    algo_map = {
-        Algorithm.DFS: ('DFS', dfs_path),
-        Algorithm.BFS: ('BFS', bfs_path),
-        Algorithm.HILL: ('Hill Climbing', hill_climbing),
-        Algorithm.ASTAR: ('A*', astar),
-        Algorithm.DIJKSTRA: ('Dijkstra', dijkstra)
-    }
+    """Run search algorithm from solver package with time and memory tracking."""
+    cfg = ALGO_CONFIGS.get(algorithm_enum, ALGO_CONFIGS[Algorithm.BFS])
+    name = cfg['name']
+    mod_name = cfg['module_name']
+    candidates = cfg['candidates']
 
-    name, algo_fn = algo_map[algorithm_enum]
     m = maps(level_path)
     state = Control(m)
+
+    # Dynamically load / reload solver module so user edits take effect immediately
+    try:
+        mod = importlib.import_module(mod_name)
+        mod = importlib.reload(mod)
+    except Exception as e:
+        print(f"⚠️  Could not import '{mod_name}': {e}")
+        mod = None
+
+    func = None
+    if mod is not None:
+        for c in candidates:
+            cand = getattr(mod, c, None)
+            if cand and callable(cand):
+                func = cand
+                break
+        if func is None:
+            # Look for any callable defined directly in the module
+            for _, attr_val in inspect.getmembers(mod, inspect.isfunction):
+                if getattr(attr_val, '__module__', None) == mod.__name__:
+                    func = attr_val
+                    break
 
     tracemalloc.start()
     t_start = time.perf_counter()
 
-    sol, visited_count = algo_fn(state)
+    sol = None
+    visited_count = 0
+
+    if func is not None:
+        try:
+            sig = inspect.signature(func)
+            param_names = [
+                p.name.lower() for p in sig.parameters.values()
+                if p.default == inspect.Parameter.empty and p.kind in (
+                    inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD
+                )
+            ]
+            if len(param_names) == 1 and ('path' in param_names[0] or 'file' in param_names[0]):
+                res = func(level_path)
+            elif len(param_names) == 1 and 'map' in param_names[0]:
+                res = func(m)
+            else:
+                res = func(state)
+        except TypeError:
+            try:
+                res = func(state)
+            except Exception as e:
+                print(f"⚠️  Error calling {func.__name__} in {mod_name}: {e}")
+                res = None
+        except Exception as e:
+            print(f"⚠️  Error executing {func.__name__} in {mod_name}: {e}")
+            res = None
+
+        if res is not None:
+            if isinstance(res, tuple):
+                if len(res) >= 2:
+                    sol, visited_count = res[0], res[1]
+                elif len(res) == 1:
+                    sol = res[0]
+                    visited_count = len(sol) if isinstance(sol, (list, tuple)) else 0
+            elif isinstance(res, dict):
+                sol = res.get('path') or res.get('solution') or res.get('moves')
+                visited_count = res.get('visited') or res.get('visited_count') or res.get('expanded') or 0
+            elif isinstance(res, list):
+                sol = res
+                visited_count = len(res)
+            else:
+                sol = res
+                visited_count = 0
+    else:
+        if mod is not None:
+            print(f"⚠️  No solver function defined yet in '{mod_name}.py'. (e.g. define 'def solve(state):')")
 
     t_elapsed = time.perf_counter() - t_start
     _, peak_mem = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    moves = solution_to_moves(sol) if sol else []
+    # If solution is move strings like ['U', 'R', ...], convert to state sequence
+    if sol and isinstance(sol, list) and len(sol) > 0 and isinstance(sol[0], str) and sol[0].upper() in ['U', 'D', 'L', 'R', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'SW', 'SPACE']:
+        move_map = {
+            'U': 'move_up', 'UP': 'move_up',
+            'D': 'move_down', 'DOWN': 'move_down',
+            'L': 'move_left', 'LEFT': 'move_left',
+            'R': 'move_right', 'RIGHT': 'move_right',
+            'SW': 'switch', 'SPACE': 'switch'
+        }
+        m_temp = maps(level_path)
+        c_temp = Control(m_temp)
+        c_temp.Play_handle = True
+        states = [deepcopy(c_temp.current)]
+        for m_str in sol:
+            action = move_map.get(m_str.upper())
+            if action == 'switch':
+                c_temp.maps.switch_box()
+                c_temp.update_current_location()
+            elif action:
+                getattr(c_temp, action)()
+            states.append(deepcopy(c_temp.current))
+        moves = [m_str.upper() for m_str in sol]
+        sol = states
+    else:
+        moves = solution_to_moves(sol) if sol else []
+
     metrics = {
         'algorithm': name,
         'level': level_path,
         'solved': sol is not None,
         'steps': len(sol) if sol else 0,
         'moves_count': len(moves),
-        'moves_str': format_moves(moves),
+        'moves_str': format_moves(moves) if moves else "—",
         'visited': visited_count,
         'time_sec': t_elapsed,
         'peak_mem_kb': peak_mem / 1024.0
@@ -359,7 +468,7 @@ def benchmark_all_algorithms(level_path):
     print(f"{'Algorithm':<15} | {'Status':<8} | {'Moves':<6} | {'Visited':<8} | {'Time (s)':<10} | {'Memory (KB)':<12}")
     print("-" * 80)
 
-    for algo_enum in [Algorithm.BFS, Algorithm.ASTAR, Algorithm.DIJKSTRA, Algorithm.DFS, Algorithm.HILL]:
+    for algo_enum in [Algorithm.BFS, Algorithm.DFS, Algorithm.UCS, Algorithm.ASTAR]:
         sol, m = run_solver(level_path, algo_enum)
         status_str = "OK" if m['solved'] else "FAIL"
         moves_str = str(m['moves_count']) if m['solved'] else "-"
@@ -436,12 +545,11 @@ def interactive_menu():
             # Solve and replay in 3D
             print("\nSelect search algorithm:")
             print("  1. BFS (Breadth-First Search)")
-            print("  2. A* Search (Manhattan Heuristic)")
-            print("  3. Dijkstra (Uniform Cost Search)")
-            print("  4. DFS (Depth-First Search)")
-            print("  5. Hill Climbing")
-            algo_choice = input("Choose algorithm (1-5, default 1): ").strip()
-            algo_map = {'1': Algorithm.BFS, '2': Algorithm.ASTAR, '3': Algorithm.DIJKSTRA, '4': Algorithm.DFS, '5': Algorithm.HILL}
+            print("  2. DFS (Depth-First Search)")
+            print("  3. UCS (Uniform Cost Search)")
+            print("  4. A* Search")
+            algo_choice = input("Choose algorithm (1-4, default 1): ").strip()
+            algo_map = {'1': Algorithm.BFS, '2': Algorithm.DFS, '3': Algorithm.UCS, '4': Algorithm.ASTAR}
             chosen_algo = algo_map.get(algo_choice, Algorithm.BFS)
 
             print("\nSolving level, please wait...")
@@ -517,7 +625,7 @@ def run_gui_launcher():
 
         elif mode == 'benchmark':
             results = []
-            for a_enum in [Algorithm.BFS, Algorithm.ASTAR, Algorithm.DIJKSTRA, Algorithm.DFS, Algorithm.HILL]:
+            for a_enum in [Algorithm.BFS, Algorithm.DFS, Algorithm.UCS, Algorithm.ASTAR]:
                 _, m_data = run_solver(level_path, a_enum)
                 results.append(m_data)
             menu.show_benchmark_window(results, level_path)
@@ -537,7 +645,7 @@ if __name__ == "__main__":
                 elif opt in algorithm_by_str:
                     main(level=level_arg, Play_handle=False, algorithm=algorithm_by_str[opt], view=view_arg)
                 else:
-                    print(f"Unknown option '{opt}'. Usage: python3 run.py <level.json> <bfs|astar|dfs|dijkstra|hill|handle> [view]")
+                    print(f"Unknown option '{opt}'. Usage: python3 run.py <level.json> <bfs|dfs|ucs|astar|handle> [view]")
             else:
                 main(level=level_arg, Play_handle=False, algorithm=Algorithm.BFS, view='3')
     else:

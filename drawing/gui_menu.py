@@ -144,13 +144,12 @@ class GuiMenu:
         self.btn_modes[1].selected = True
         self.selected_mode = 1
 
-        # 2. Algorithm buttons - Clean names, no subtitles, no tags
+        # 2. Algorithm buttons: 4 core algorithms (BFS, DFS, UCS, A*)
         self.btn_algos = [
-            Button((40, 190, 360, 34), "BFS", callback_data='bfs'),
-            Button((40, 228, 360, 34), "A* Search", callback_data='astar'),
-            Button((40, 266, 360, 34), "Dijkstra", callback_data='dijkstra'),
-            Button((40, 304, 360, 34), "DFS", callback_data='dfs'),
-            Button((40, 342, 360, 34), "Hill Climbing", callback_data='hill')
+            Button((40, 190, 360, 36), "BFS", callback_data='bfs'),
+            Button((40, 232, 360, 36), "DFS", callback_data='dfs'),
+            Button((40, 274, 360, 36), "UCS", callback_data='ucs'),
+            Button((40, 316, 360, 36), "A* Search", callback_data='astar')
         ]
         self.btn_algos[0].selected = True
 
@@ -282,7 +281,7 @@ class GuiMenu:
             pygame.draw.rect(surface, C_BORDER, info_box, width=1, border_radius=6)
             txts = [
                 ("⚡ BENCHMARK ALL ALGORITHMS", C_CYAN),
-                ("• Runs BFS, A*, Dijkstra, DFS, Hill Climbing", C_TEXT),
+                ("• Runs BFS, DFS, UCS, A* Search", C_TEXT),
                 ("• Measures execution time (wall-clock)", C_TEXT_MUTED),
                 ("• Measures peak memory usage (tracemalloc)", C_TEXT_MUTED),
                 ("• Counts explored states & solution steps", C_TEXT_MUTED),
@@ -321,10 +320,9 @@ class GuiMenu:
         mode_names = {0: "Manual Play (Keyboard Control)", 1: "AI Solver (Search & 3D Replay)", 2: "Algorithm Benchmark"}
         algo_names = {
             'bfs': 'BFS (Breadth-First Search)',
-            'astar': 'A* Search (Manhattan Distance)',
-            'dijkstra': 'Dijkstra (Uniform Cost Search)',
             'dfs': 'DFS (Depth-First Search)',
-            'hill': 'Hill Climbing (Greedy Heuristic)'
+            'ucs': 'UCS (Uniform Cost Search)',
+            'astar': 'A* Search'
         }
 
         setup_details = [
