@@ -1,6 +1,3 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
-"""Run"""
 import pygame
 import sys
 import os
@@ -10,6 +7,7 @@ from drawing.display import Display
 from model.map import maps
 from model.control import Control
 import timeit
+from model.ucs import run_ucs, CostModel
 
 class Algorithm:
     DFS = 1
@@ -17,13 +15,15 @@ class Algorithm:
     HILL= 3
     ASTAR = 4
     DIJKSTRA = 5
+    UCS = 6
 
 algorithm_names = {
     1: 'DFS',
     2: 'BFS',
     3: 'HILL',
     4: 'ASTAR',
-    5: 'DIJKSTRA'
+    5: 'DIJKSTRA',
+    6: 'UCS'
 }
 
 class Level:
@@ -42,7 +42,14 @@ class Level:
     lv13 = "./level/13.json"
     lv14 = "./level/14.json"
     lv15 = "./level/15.json"
-    
+
+def ucs_solver(state, level_path=None):
+    r = run_ucs(level_path, CostModel())
+    print("UCS | solved=%s length=%s cost=%s expanded=%s time=%.2f ms peak_mem=%.1f KB" % (
+        r['solved'], r['length'], r['cost'], r['expanded'], r['time_s']*1000, r['peak_mem_kb']))
+    print("Moves:", r['actions'])
+    return r['path'], r['expanded']
+
 def deltatime(start_time):
     result = time.time() - start_time
     print("Time: ", result)
@@ -135,7 +142,7 @@ def draw_path_2D(solution, timesleep=0.5, level=Level.lv1):
         time.sleep(timesleep)
 
         for path in solution:
-            os.system("clear")
+            os.system("cls" if os.name == "nt" else "clear")
             level.current = path
             level.update_box_locaton_for_maps(path)
 
@@ -173,7 +180,8 @@ def main(level=Level.lv1, Play_handle=True, algorithm=Algorithm.DFS, view='3'):
                 Algorithm.BFS: bfs_step_by_step,
                 Algorithm.HILL: None,
                 Algorithm.ASTAR: None,
-                Algorithm.DIJKSTRA: None
+                Algorithm.DIJKSTRA: None,
+                Algorithm.UCS: None
             }
             algo = algo_map[algorithm]
             if algo:
@@ -186,7 +194,8 @@ def main(level=Level.lv1, Play_handle=True, algorithm=Algorithm.DFS, view='3'):
                 Algorithm.BFS: bfs_path,
                 Algorithm.HILL: hill_climbing,
                 Algorithm.ASTAR: astar,
-                Algorithm.DIJKSTRA: dijkstra
+                Algorithm.DIJKSTRA: dijkstra,
+                Algorithm.UCS: lambda st: ucs_solver(st, level)
             }
             algo = algo_map[algorithm]
             result, it = algo(state)
@@ -203,7 +212,8 @@ def main(level=Level.lv1, Play_handle=True, algorithm=Algorithm.DFS, view='3'):
                     Algorithm.BFS: 'bfs_path',
                     Algorithm.HILL: 'hill_climbing',
                     Algorithm.ASTAR: 'astar',
-                    Algorithm.DIJKSTRA: 'dijkstra'
+                    Algorithm.DIJKSTRA: 'dijkstra',
+                    Algorithm.UCS: 'ucs_solver'
                 }
                 overhead = timeit.timeit(f"Control(maps('{level}'))", number=iters,globals=globals())/iters
                 algo_name = algo_name_map[algorithm]
@@ -229,6 +239,8 @@ if __name__=="__main__":
             main(level=level, Play_handle=False, algorithm=Algorithm.HILL, view=view)
         elif option == "astar":
             main(level=level, Play_handle=False, algorithm=Algorithm.ASTAR, view=view)
+        elif option == "ucs":                                                          
+            main(level=level, Play_handle=False, algorithm=Algorithm.UCS, view=view)
         elif option == "dijkstra":
             main(level=level, Play_handle=False, algorithm=Algorithm.DIJKSTRA, view=view)
         else: 
