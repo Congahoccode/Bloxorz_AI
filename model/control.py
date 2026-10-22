@@ -32,6 +32,12 @@ class Control:
         
         self.moves = (self.move_up, self.move_down, self.move_right, self.move_left)
 
+    def switch_box(self):
+        if self.maps.switch_active_box():
+            self.update_current_location()
+            return True
+        return False
+
     def move_up(self):
         self.maps.current_box.move_up()
         if not self.check_box_on_maps():
@@ -75,7 +81,14 @@ class Control:
             return True
 
     def update_current_location(self):
-        self.current = self.maps.current_box.location
+        if self.maps.is_split and len(self.maps.split_boxes) == 2:
+            self.current = (
+                deepcopy(self.maps.split_boxes[0].location),
+                deepcopy(self.maps.split_boxes[1].location),
+                self.maps.active_box_index
+            )
+        else:
+            self.current = deepcopy(self.maps.current_box.location)
         self.curr_maps = deepcopy(self.maps.maps)
         
     def update_box_locaton_for_maps(self, location):
@@ -85,11 +98,22 @@ class Control:
         return self.maps.refreshBox()
     
     def set_state(self, state, maps):
-        self.current = state
+        self.current = deepcopy(state)
         self.curr_maps = deepcopy(maps)
         self.maps.maps = self.curr_maps
-        self.maps.current_box.location = deepcopy(self.current)
-        self.maps.current_box.pre_location = deepcopy(self.current)
+        if isinstance(state, tuple) and len(state) == 3:
+            loc1, loc2, active_idx = state
+            b1 = Box("#1", 1, deepcopy(loc1))
+            b2 = Box("#2", 1, deepcopy(loc2))
+            self.maps.is_split = True
+            self.maps.split_boxes = [b1, b2]
+            self.maps.active_box_index = active_idx
+            self.maps.current_box = b1 if active_idx == 0 else b2
+        else:
+            self.maps.is_split = False
+            self.maps.split_boxes = []
+            self.maps.current_box.location = deepcopy(self.current)
+            self.maps.current_box.pre_location = deepcopy(self.current)
         
     def get_state(self):
         return deepcopy(self.current)
@@ -131,7 +155,14 @@ class Control:
         return eval_maps
 
     def evaluate(self):
-        if len(self.current) == 2:
+        if self.eval_maps is None:
+            return 0
+        if isinstance(self.current, tuple):
+            p1 = self.current[0][0]
+            p2 = self.current[1][0]
+            self.curr_evaluate = (self.eval_maps[p1[0], p1[1]] + self.eval_maps[p2[0], p2[1]]) / 2
+            return self.curr_evaluate
+        elif len(self.current) == 2:
             point1, point2 = self.current
             self.curr_evaluate = (self.eval_maps[point1[0], point1[1]] + self.eval_maps[point2[0], point2[1]])/2
             return self.curr_evaluate
@@ -156,14 +187,27 @@ class Control:
             for y in range(height):
                 tile = maps[int(y)][int(x)]
                 if tile.type != 0:
-                    # if [y, x] in self.current or [y, x] in path:
-                    #     Cube.draw_box(position=(x, y), size=(1, 1, -0.3), face_color=Tile.mark)
                     Cube.draw_box(position=(x, y), size=(1, 1, -0.3), face_color=tile.colors)
                 else:
                     if tile.obj != None and tile.obj.symbol == "$":
                         Cube.draw_box(position=(x, y), size=(1, 1, -0.3), face_color=tile.colors)
 
     def draw_box(self):
+        if self.maps.is_split and len(self.maps.split_boxes) == 2:
+            b1 = self.maps.split_boxes[0]
+            b2 = self.maps.split_boxes[1]
+            if self.maps.active_box_index == 0:
+                Cube.draw_box(position=(b1.location[0][1], b1.location[0][0]), size=(1, 1, 1),
+                              face_color=(0.2, 0.7, 1.0), border_color=(1.0, 1.0, 0.0))
+                Cube.draw_box(position=(b2.location[0][1], b2.location[0][0]), size=(1, 1, 1),
+                              face_color=(0.3, 0.4, 0.6), border_color=(0.5, 0.5, 0.5))
+            else:
+                Cube.draw_box(position=(b1.location[0][1], b1.location[0][0]), size=(1, 1, 1),
+                              face_color=(0.3, 0.4, 0.6), border_color=(0.5, 0.5, 0.5))
+                Cube.draw_box(position=(b2.location[0][1], b2.location[0][0]), size=(1, 1, 1),
+                              face_color=(0.2, 0.7, 1.0), border_color=(1.0, 1.0, 0.0))
+            return
+
         if len(self.current) == 2:
             current = self.current
         else: current = [self.current[0], self.current[0]]

@@ -11,6 +11,61 @@ import pygame
 from copy import deepcopy
 from heapq import heappop, heappush, heapify
 
+def solution_to_moves(solution):
+    """Convert a sequence of states (solution path) into a list of direction letters (U, D, L, R, SW)."""
+    if not solution or len(solution) < 2:
+        return []
+    moves = []
+    dir_names = {'move_up': 'U', 'move_down': 'D', 'move_left': 'L', 'move_right': 'R'}
+    for i in range(len(solution) - 1):
+        s_cur = solution[i]
+        s_next = solution[i + 1]
+
+        found = None
+        # Split block state
+        if isinstance(s_cur, tuple) and len(s_cur) == 3:
+            loc1, loc2, active_idx = s_cur
+            if isinstance(s_next, tuple) and len(s_next) == 3:
+                next_loc1, next_loc2, next_active_idx = s_next
+                if next_active_idx != active_idx and loc1 == next_loc1 and loc2 == next_loc2:
+                    moves.append('SW')
+                    continue
+            cur_active_loc = loc1 if active_idx == 0 else loc2
+            for move_fn, name in dir_names.items():
+                b = cube('#', 1, deepcopy(cur_active_loc))
+                getattr(b, move_fn)()
+                if isinstance(s_next, tuple):
+                    target = s_next[0] if active_idx == 0 else s_next[1]
+                    if sorted(b.location) == sorted(target):
+                        found = name
+                        break
+                elif isinstance(s_next, list):  # Merged
+                    other_loc = loc2 if active_idx == 0 else loc1
+                    merged = b.location + other_loc
+                    if sorted(merged) == sorted(s_next):
+                        found = name
+                        break
+        else:
+            # Standard double box
+            for move_fn, name in dir_names.items():
+                b = cube('#', 2, deepcopy(s_cur))
+                getattr(b, move_fn)()
+                if isinstance(s_next, list):
+                    if sorted(b.location) == sorted(s_next):
+                        found = name
+                        break
+                elif isinstance(s_next, tuple):  # Triggered split switch
+                    found = name
+                    break
+        moves.append(found if found else '?')
+    return moves
+
+
+def format_moves(moves):
+    """Format list of moves into a space-separated readable string."""
+    return " ".join(moves) if moves else "(empty)"
+
+
 def print_stack(stack, algorithm):
     if algorithm=="dfs":
         print("STACK: ")
@@ -277,55 +332,120 @@ def handle(state: Control, map_size=(0, 0)):
     pygame.init()
     display = Display(title='Bloxorz Game - Play Mode', map_size=map_size)
     result = True
-    print("Use Arrow Keys to move. Press ESC, Space, or Close Window to exit.")
     clock = pygame.time.Clock()
+
+    # Save initial state for restart
+    initial_maps_obj = state.maps
+    level_path = initial_maps_obj.path if hasattr(initial_maps_obj, 'path') else None
+
+    move_count = 0
+    move_history = []  # list of direction chars
+    status = "PLAYING"
+
+    lvl_name = os.path.basename(level_path).replace(".json", "") if level_path else "?"
+
+    def build_sidebar_info():
+        moves_display = " ".join(move_history[-30:]) if move_history else "(no moves yet)"
+        if len(move_history) > 30:
+            moves_display = "... " + moves_display
+        return {
+            'mode': 'play',
+            'level_name': lvl_name,
+            'algo_name': '',
+            'current_step': move_count,
+            'total_steps': move_count + 1,
+            'status': status,
+            'moves_str': moves_display,
+            'speed_label': '',
+            'metrics': None,
+            'move_count': move_count,
+            'split_active': state.maps.is_split,
+        }
+
+    def do_restart():
+        nonlocal state, result, move_count, move_history, status
+        if level_path and os.path.exists(level_path):
+            new_maps = maps(level_path)
+            state.__init__(new_maps)
+            state.Play_handle = True
+            result = True
+            move_count = 0
+            move_history = []
+            status = "PLAYING"
 
     # Initial render
     state.draw_maps()
     state.draw_box()
+    display.draw_sidebar(build_sidebar_info())
     display.update()
 
     while True:
         moved = False
         for event in pygame.event.get():
-            if display.quit(event):
-                print("Exited game.")
+            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key in [pygame.K_ESCAPE, pygame.K_q]):
                 pygame.quit()
                 return
 
-            if state.Play_handle and event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_UP:
-                    result = state.move_up()
-                    moved = True
-                elif event.key == pygame.K_DOWN:
-                    result = state.move_down()
-                    moved = True
-                elif event.key == pygame.K_RIGHT:
-                    result = state.move_right()
-                    moved = True
-                elif event.key == pygame.K_LEFT:
-                    result = state.move_left()
-                    moved = True
+            if display.handle_camera_event(event):
+                continue
 
-        if moved:
-            state.draw_maps()
-            state.draw_box()
-            display.update()
+            if event.type == pygame.KEYDOWN:
+                # Restart
+                if event.key == pygame.K_r:
+                    do_restart()
+                    moved = True
+                    continue
 
+                if status != "PLAYING":
+                    continue
+
+                if state.Play_handle:
+                    if event.key == pygame.K_SPACE:
+                        if state.maps.is_split:
+                            state.switch_box()
+                            moved = True
+                    elif event.key == pygame.K_UP:
+                        result = state.move_up()
+                        moved = True
+                        move_count += 1
+                        move_history.append("U")
+                    elif event.key == pygame.K_DOWN:
+                        result = state.move_down()
+                        moved = True
+                        move_count += 1
+                        move_history.append("D")
+                    elif event.key == pygame.K_RIGHT:
+                        result = state.move_right()
+                        moved = True
+                        move_count += 1
+                        move_history.append("R")
+                    elif event.key == pygame.K_LEFT:
+                        result = state.move_left()
+                        moved = True
+                        move_count += 1
+                        move_history.append("L")
+
+        if moved and status == "PLAYING":
             if state.check_goal():
-                print("WINNER! Congratulations, you reached the goal!")
-                time.sleep(1.5)
-                pygame.quit()
-                return
+                status = "GOAL REACHED"
+                state.draw_maps()
+                state.draw_box()
+                display.draw_sidebar(build_sidebar_info())
+                display.update()
+                # Stay in loop so player can view the result and press R or ESC
+                continue
 
             if result == False:
-                print("LOSER! The block fell off the board.")
-                time.sleep(1.5)
-                pygame.quit()
-                return
-        else:
-            state.draw_maps()
-            state.draw_box()
-            display.update()
+                status = "GAME OVER"
+                state.draw_maps()
+                state.draw_box()
+                display.draw_sidebar(build_sidebar_info())
+                display.update()
+                # Stay in loop so player can press R to restart or ESC to exit
+                continue
 
+        state.draw_maps()
+        state.draw_box()
+        display.draw_sidebar(build_sidebar_info())
+        display.update()
         clock.tick(30)

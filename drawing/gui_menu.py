@@ -1,0 +1,674 @@
+import pygame
+import os
+import sys
+from model.map import maps
+
+# Color Palette
+C_BG = (18, 22, 32)
+C_PANEL = (28, 34, 48)
+C_PANEL_LIGHT = (35, 42, 60)
+C_BORDER = (48, 58, 80)
+C_BORDER_ACCENT = (14, 165, 233)
+C_TEXT = (245, 248, 252)
+C_TEXT_MUTED = (145, 155, 175)
+C_TEXT_DIM = (95, 105, 125)
+C_BLUE = (14, 165, 233)
+C_CYAN = (6, 182, 212)
+C_GREEN = (16, 185, 129)
+C_GREEN_HOVER = (20, 205, 145)
+C_ORANGE = (249, 115, 22)
+C_PURPLE = (168, 85, 247)
+C_RED = (239, 68, 68)
+C_BTN_DEFAULT = (38, 46, 64)
+C_BTN_HOVER = (50, 60, 84)
+
+
+class Button:
+    def __init__(self, rect, text, subtext="", badge="", callback_data=None):
+        self.rect = pygame.Rect(rect)
+        self.text = text
+        self.subtext = subtext
+        self.badge = badge
+        self.callback_data = callback_data
+        self.selected = False
+        self.active_color = C_BLUE
+
+    def draw(self, surface, mouse_pos, font_main, font_sub=None, font_badge=None):
+        is_hover = self.rect.collidepoint(mouse_pos)
+
+        # Background color
+        if self.selected:
+            bg_col = self.active_color
+            border_col = (255, 255, 255)
+            text_col = (255, 255, 255)
+        elif is_hover:
+            bg_col = C_BTN_HOVER
+            border_col = C_BLUE
+            text_col = C_TEXT
+        else:
+            bg_col = C_BTN_DEFAULT
+            border_col = C_BORDER
+            text_col = C_TEXT_MUTED
+
+        pygame.draw.rect(surface, bg_col, self.rect, border_radius=6)
+        pygame.draw.rect(surface, border_col, self.rect, width=1, border_radius=6)
+
+        # Main text
+        if self.subtext:
+            text_surf = font_main.render(self.text, True, text_col)
+            surface.blit(text_surf, (self.rect.x + 10, self.rect.y + 6))
+            if font_sub:
+                sub_col = (220, 220, 220) if self.selected else C_TEXT_DIM
+                sub_surf = font_sub.render(self.subtext, True, sub_col)
+                surface.blit(sub_surf, (self.rect.x + 10, self.rect.y + 24))
+        else:
+            text_surf = font_main.render(self.text, True, text_col)
+            text_rect = text_surf.get_rect(center=self.rect.center)
+            surface.blit(text_surf, text_rect)
+
+        # Badge
+        if self.badge and font_badge:
+            badge_surf = font_badge.render(self.badge, True, C_ORANGE if not self.selected else (255, 255, 255))
+            b_rect = badge_surf.get_rect(topright=(self.rect.right - 8, self.rect.y + 6))
+            surface.blit(badge_surf, b_rect)
+
+    def is_clicked(self, event):
+        return event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.collidepoint(event.pos)
+
+
+class GuiMenu:
+    def __init__(self, size=(980, 680)):
+        self.size = size
+        self.screen = None
+        self.clock = None
+        self.running = True
+
+        # Fonts
+        pygame.font.init()
+        self.font_title = pygame.font.SysFont('Arial', 24, bold=True)
+        self.font_section = pygame.font.SysFont('Arial', 16, bold=True)
+        self.font_btn = pygame.font.SysFont('Arial', 14, bold=True)
+        self.font_sub = pygame.font.SysFont('Arial', 11)
+        self.font_badge = pygame.font.SysFont('Arial', 10, bold=True)
+        self.font_info = pygame.font.SysFont('Arial', 13)
+
+        # Levels available
+        self.level_files = self._load_level_files()
+        self.selected_level_idx = 0
+        self.selected_mode = 0  # 0: Play, 1: AI Solver, 2: Benchmark
+        self.selected_algo = 'bfs'
+        # Cached level info
+        self.level_info_cache = {}
+
+        # Build UI Elements
+        self._init_buttons()
+
+    def _load_level_files(self):
+        lvl_files = []
+        lvl_dir = "./level"
+        if os.path.exists(lvl_dir):
+            for f in sorted(os.listdir(lvl_dir)):
+                if f.endswith(".json"):
+                    lvl_files.append(os.path.join(lvl_dir, f))
+        return lvl_files
+
+    def _get_level_info(self, path):
+        if path in self.level_info_cache:
+            return self.level_info_cache[path]
+        try:
+            m = maps(path)
+            orange_count = sum(row.count(2) for row in m.jsonObj.get("maps", []))
+            info = {
+                'name': m.level,
+                'size': m.size,
+                'start': m.start,
+                'end': m.end,
+                'swQ': len(m.swQ),
+                'swX': len(m.swX),
+                'swO': len(m.swO),
+                'bridge': len(m.Brid),
+                'orange': orange_count
+            }
+        except Exception:
+            info = {'name': 'Unknown', 'size': [0, 0], 'start': [0, 0], 'end': [0, 0], 'swQ': 0, 'swX': 0, 'swO': 0, 'bridge': 0, 'orange': 0}
+        self.level_info_cache[path] = info
+        return info
+
+    def _init_buttons(self):
+        # 1. Mode buttons (Left top) - Clean, simple names, no subtitles
+        self.btn_modes = [
+            Button((40, 110, 115, 38), "Play", callback_data=0),
+            Button((162, 110, 120, 38), "AI Solver", callback_data=1),
+            Button((290, 110, 110, 38), "Benchmark", callback_data=2)
+        ]
+        self.btn_modes[1].selected = True
+        self.selected_mode = 1
+
+        # 2. Algorithm buttons - Clean names, no subtitles, no tags
+        self.btn_algos = [
+            Button((40, 190, 360, 34), "BFS", callback_data='bfs'),
+            Button((40, 228, 360, 34), "A* Search", callback_data='astar'),
+            Button((40, 266, 360, 34), "Dijkstra", callback_data='dijkstra'),
+            Button((40, 304, 360, 34), "DFS", callback_data='dfs'),
+            Button((40, 342, 360, 34), "Hill Climbing", callback_data='hill')
+        ]
+        self.btn_algos[0].selected = True
+
+        # Action buttons (prominently placed in the launch panel)
+        self.btn_start = Button((445, 575, 330, 54), "▶ START (PLAY)", "")
+        self.btn_start.active_color = C_GREEN
+        self.btn_start.selected = True
+
+        self.btn_exit = Button((790, 575, 150, 54), "EXIT", "")
+
+        # 5. Level grid buttons (Right column) - Clean names, no tags
+        self.btn_levels = []
+        cols = 4
+        btn_w = 118
+        btn_h = 32
+        gap_x = 8
+        gap_y = 6
+        start_x = 445
+        start_y = 110
+
+        for i, lp in enumerate(self.level_files):
+            r = i // cols
+            c = i % cols
+            bx = start_x + c * (btn_w + gap_x)
+            by = start_y + r * (btn_h + gap_y)
+
+            bname = os.path.basename(lp).replace(".json", "")
+            if bname.isdigit():
+                display_name = f"Level {bname}"
+            else:
+                clean_name = bname.replace("level_", "").replace("_", " ").title()
+                display_name = f"Lv {clean_name[:8]}"
+
+            btn = Button((bx, by, btn_w, btn_h), display_name, callback_data=i)
+            self.btn_levels.append(btn)
+
+        if self.btn_levels:
+            self.btn_levels[0].selected = True
+
+    def draw(self, surface):
+        surface.fill(C_BG)
+        mouse_pos = pygame.mouse.get_pos()
+
+        # Top Header Bar - Clean title, no subtitle
+        pygame.draw.rect(surface, C_PANEL, (0, 0, self.size[0], 65))
+        pygame.draw.line(surface, C_BORDER, (0, 65), (self.size[0], 65), 1)
+
+        title_surf = self.font_title.render("🎮 BLOXORZ", True, C_TEXT)
+        surface.blit(title_surf, (40, 18))
+
+        # Left Container Panel
+        pygame.draw.rect(surface, C_PANEL, (25, 75, 390, 580), border_radius=8)
+        pygame.draw.rect(surface, C_BORDER, (25, 75, 390, 580), width=1, border_radius=8)
+
+        # Section 1: Mode
+        sec1_surf = self.font_section.render("GAME MODE", True, C_CYAN)
+        surface.blit(sec1_surf, (40, 85))
+        for btn in self.btn_modes:
+            btn.draw(surface, mouse_pos, self.font_btn)
+
+        # Section 2: Algorithm (only active in AI Solver mode)
+        if self.selected_mode in [1, 2]:
+            sec2_title = "SEARCH ALGORITHM" if self.selected_mode == 1 else "BENCHMARK ALGORITHMS"
+            sec2_surf = self.font_section.render(sec2_title, True, C_CYAN)
+            surface.blit(sec2_surf, (40, 162))
+            for btn in self.btn_algos:
+                btn.draw(surface, mouse_pos, self.font_btn)
+
+        # Section 3: Guide & Controls Panel (English)
+        if self.selected_mode == 1:
+            info_box = pygame.Rect(40, 390, 360, 245)
+            pygame.draw.rect(surface, C_PANEL_LIGHT, info_box, border_radius=6)
+            pygame.draw.rect(surface, C_BORDER, info_box, width=1, border_radius=6)
+            txts = [
+                ("🎥 3D CAMERA CONTROLS", C_CYAN),
+                ("• Left-drag: Orbit camera 360°", C_TEXT),
+                ("• Mouse wheel: Zoom In / Out", C_TEXT_MUTED),
+                ("• Right-drag: Pan target view", C_TEXT_MUTED),
+                ("• Keys 1, 2, 3, 4: Preset view angles", C_TEXT_MUTED),
+                ("• Key C: Reset camera | Key H: Toggle sidebar", C_TEXT_MUTED),
+                ("", C_TEXT),
+                ("🎬 REPLAY CONTROLS", C_CYAN),
+                ("• Space: Start / Pause / Resume replay", C_TEXT),
+                ("• Left / Right: Step backward / forward", C_TEXT_MUTED),
+                ("• Key R: Reset replay to beginning", C_TEXT_MUTED),
+                ("• Key +/-: Increase / decrease speed", C_TEXT_MUTED),
+                ("• Key ESC: Exit replay to Menu", C_ORANGE)
+            ]
+            iy = 400
+            for t, col in txts:
+                if t:
+                    ts = self.font_info.render(t, True, col)
+                    surface.blit(ts, (52, iy))
+                iy += 17
+        elif self.selected_mode == 0:
+            # Info box for human play
+            info_box = pygame.Rect(40, 175, 360, 460)
+            pygame.draw.rect(surface, C_PANEL_LIGHT, info_box, border_radius=6)
+            pygame.draw.rect(surface, C_BORDER, info_box, width=1, border_radius=6)
+
+            txts = [
+                ("🎮 HOW TO PLAY", C_CYAN),
+                ("• Arrow Keys: Roll block (U/D/L/R)", C_TEXT),
+                ("• SPACE: Switch active block when split", C_TEXT),
+                ("• Orange tiles: Fragile (stand upright = fall)", C_TEXT_MUTED),
+                ("• Heavy switch (swX): Stand upright to trigger", C_TEXT_MUTED),
+                ("• Soft switch (swQ): Any contact triggers", C_TEXT_MUTED),
+                ("• Bridges: Open/close by linked switches", C_TEXT_MUTED),
+                ("• Key R: Restart level from beginning", C_TEXT_MUTED),
+                ("• Key ESC: Return to Menu", C_ORANGE),
+                ("", C_TEXT),
+                ("🎥 3D CAMERA CONTROLS", C_CYAN),
+                ("• Left-drag: Orbit camera 360°", C_TEXT_MUTED),
+                ("• Mouse wheel: Zoom In / Out", C_TEXT_MUTED),
+                ("• Right-drag: Pan camera target", C_TEXT_MUTED),
+                ("• Keys 1, 2, 3, 4: Preset view angles", C_TEXT_MUTED),
+                ("• Key C: Reset camera | Key H: Toggle sidebar", C_TEXT_MUTED),
+            ]
+            iy = 190
+            for t, col in txts:
+                if t:
+                    ts = self.font_info.render(t, True, col)
+                    surface.blit(ts, (52, iy))
+                iy += 21
+        elif self.selected_mode == 2:
+            # Info box for Benchmark
+            info_box = pygame.Rect(40, 390, 360, 245)
+            pygame.draw.rect(surface, C_PANEL_LIGHT, info_box, border_radius=6)
+            pygame.draw.rect(surface, C_BORDER, info_box, width=1, border_radius=6)
+            txts = [
+                ("⚡ BENCHMARK ALL ALGORITHMS", C_CYAN),
+                ("• Runs BFS, A*, Dijkstra, DFS, Hill Climbing", C_TEXT),
+                ("• Measures execution time (wall-clock)", C_TEXT_MUTED),
+                ("• Measures peak memory usage (tracemalloc)", C_TEXT_MUTED),
+                ("• Counts explored states & solution steps", C_TEXT_MUTED),
+                ("• Displays interactive comparison table", C_TEXT_MUTED),
+                ("• Click any row to view full move sequence", C_TEXT_MUTED),
+            ]
+            iy = 410
+            for t, col in txts:
+                ts = self.font_info.render(t, True, col)
+                surface.blit(ts, (52, iy))
+                iy += 24
+
+        # Right Container Panel (Levels & Launch Setup)
+        pygame.draw.rect(surface, C_PANEL, (430, 75, 525, 580), border_radius=8)
+        pygame.draw.rect(surface, C_BORDER, (430, 75, 525, 580), width=1, border_radius=8)
+
+        # Level Grid Title
+        lvl_title = self.font_section.render(f"SELECT LEVEL ({len(self.level_files)} LEVELS)", True, C_CYAN)
+        surface.blit(lvl_title, (445, 85))
+
+        # Draw Level Buttons
+        for btn in self.btn_levels:
+            btn.draw(surface, mouse_pos, self.font_btn)
+
+        # Launch Setup Card (Replaces old info & tips card)
+        card_rect = pygame.Rect(445, 290, 495, 265)
+        pygame.draw.rect(surface, C_PANEL_LIGHT, card_rect, border_radius=8)
+        pygame.draw.rect(surface, C_BORDER, card_rect, width=1, border_radius=8)
+
+        card_title = self.font_section.render("SETUP & LAUNCH", True, C_TEXT)
+        surface.blit(card_title, (465, 308))
+
+        cur_path = self.level_files[self.selected_level_idx] if (0 <= self.selected_level_idx < len(self.level_files)) else ""
+        lvl_bname = os.path.basename(cur_path) if cur_path else "None"
+
+        mode_names = {0: "Manual Play (Keyboard Control)", 1: "AI Solver (Search & 3D Replay)", 2: "Algorithm Benchmark"}
+        algo_names = {
+            'bfs': 'BFS (Breadth-First Search)',
+            'astar': 'A* Search (Manhattan Distance)',
+            'dijkstra': 'Dijkstra (Uniform Cost Search)',
+            'dfs': 'DFS (Depth-First Search)',
+            'hill': 'Hill Climbing (Greedy Heuristic)'
+        }
+
+        setup_details = [
+            f"• Mode: {mode_names.get(self.selected_mode, 'Unknown')}",
+            f"• Level: {lvl_bname}  ({cur_path})",
+        ]
+        if self.selected_mode in [1, 2]:
+            setup_details.append(f"• Algorithm: {algo_names.get(self.selected_algo, self.selected_algo.upper())}")
+
+        setup_details.append("")
+        setup_details.append("Select your mode, algorithm, and level above.")
+        setup_details.append("Click START to launch the game when you are ready.")
+
+        dy = 345
+        for d in setup_details:
+            if d:
+                is_key = d.startswith("• ")
+                col = C_TEXT if is_key else C_TEXT_MUTED
+                dsurf = self.font_info.render(d, True, col)
+                surface.blit(dsurf, (465, dy))
+            dy += 24
+
+        # Action Buttons (Start / Exit) - located right under the setup card
+        self.btn_start.draw(surface, mouse_pos, self.font_btn)
+        self.btn_exit.draw(surface, mouse_pos, self.font_btn)
+
+    def handle_event(self, event):
+        if event.type == pygame.QUIT:
+            return {'action': 'exit'}
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            return {'action': 'exit'}
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            # Mode selection
+            for btn in self.btn_modes:
+                if btn.rect.collidepoint(event.pos):
+                    for b in self.btn_modes:
+                        b.selected = False
+                    btn.selected = True
+                    self.selected_mode = btn.callback_data
+
+            # Algorithm selection
+            for btn in self.btn_algos:
+                if btn.rect.collidepoint(event.pos):
+                    for b in self.btn_algos:
+                        b.selected = False
+                    btn.selected = True
+                    self.selected_algo = btn.callback_data
+
+            # Level selection
+            for btn in self.btn_levels:
+                if btn.rect.collidepoint(event.pos):
+                    for b in self.btn_levels:
+                        b.selected = False
+                    btn.selected = True
+                    self.selected_level_idx = btn.callback_data
+
+            # Exit button
+            if self.btn_exit.rect.collidepoint(event.pos):
+                return {'action': 'exit'}
+
+            # Start button
+            if self.btn_start.rect.collidepoint(event.pos):
+                level_path = self.level_files[self.selected_level_idx]
+                if self.selected_mode == 0:
+                    return {'action': 'start', 'mode': 'play', 'level': level_path}
+                elif self.selected_mode == 1:
+                    return {
+                        'action': 'start',
+                        'mode': 'solve',
+                        'level': level_path,
+                        'algo': self.selected_algo,
+                        'view': '3'
+                    }
+                elif self.selected_mode == 2:
+                    return {'action': 'start', 'mode': 'benchmark', 'level': level_path}
+
+        return None
+
+    def show_benchmark_window(self, results, level_path):
+        """Display an on-screen visual modal table showing benchmark metrics with annotations and full move view."""
+        # Enlarge window for benchmark
+        bm_size = (1080, 740)
+        self.screen = pygame.display.set_mode(bm_size)
+        pygame.display.set_caption("Bloxorz AI - Benchmark Results")
+
+        btn_back = Button((bm_size[0] // 2 - 110, bm_size[1] - 60, 220, 46), "← Back to Menu", "")
+        btn_back.selected = True
+        btn_back.active_color = C_BLUE
+
+        # Fonts for benchmark
+        font_head = pygame.font.SysFont('Arial', 13, bold=True)
+        font_annot = pygame.font.SysFont('Arial', 10)
+        font_data = pygame.font.SysFont('Arial', 12)
+        font_data_bold = pygame.font.SysFont('Arial', 12, bold=True)
+        font_moves = pygame.font.SysFont('Consolas', 10)
+        if not font_moves:
+            font_moves = pygame.font.SysFont('monospace', 10)
+
+        # Scroll state for the moves detail panel
+        selected_row = -1  # -1 means no row expanded
+        moves_scroll_y = 0
+
+        modal_running = True
+        while modal_running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                    modal_running = False
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if btn_back.rect.collidepoint(event.pos):
+                        modal_running = False
+                    # Check if clicking on a data row to expand/collapse moves
+                    row_y_check = 195
+                    for idx in range(len(results)):
+                        row_rect = pygame.Rect(55, row_y_check, bm_size[0] - 110, 54)
+                        if row_rect.collidepoint(event.pos):
+                            if selected_row == idx:
+                                selected_row = -1
+                            else:
+                                selected_row = idx
+                                moves_scroll_y = 0
+                            break
+                        row_y_check += 56
+                # Scroll inside moves detail panel
+                if event.type == pygame.MOUSEWHEEL and selected_row >= 0:
+                    moves_scroll_y = max(0, moves_scroll_y - event.y * 14)
+
+            mouse_pos = pygame.mouse.get_pos()
+            self.screen.fill(C_BG)
+
+            # ── Title ──
+            t_surf = self.font_title.render("⚡ BENCHMARK PERFORMANCE RESULTS", True, C_TEXT)
+            self.screen.blit(t_surf, (bm_size[0] // 2 - t_surf.get_width() // 2, 14))
+
+            lvl_name = os.path.basename(level_path)
+            sub_surf = self.font_sub.render(f"Level: {lvl_name}  •  File: {level_path}", True, C_CYAN)
+            self.screen.blit(sub_surf, (bm_size[0] // 2 - sub_surf.get_width() // 2, 44))
+
+            # ── Table Container ──
+            table_top = 70
+            table_h = 360
+            tbl_rect = pygame.Rect(30, table_top, bm_size[0] - 60, table_h)
+            pygame.draw.rect(self.screen, C_PANEL, tbl_rect, border_radius=8)
+            pygame.draw.rect(self.screen, C_BORDER, tbl_rect, width=1, border_radius=8)
+
+            # ── Column definitions with annotations ──
+            columns = [
+                {"title": "Algorithm",     "annot": "Search algorithm",          "w": 135, "align": "left"},
+                {"title": "Status",        "annot": "Solution found?",          "w": 95,  "align": "left"},
+                {"title": "Steps",         "annot": "Moves in solution",        "w": 75,  "align": "right"},
+                {"title": "Explored",      "annot": "Expanded states",          "w": 100, "align": "right"},
+                {"title": "Time",          "annot": "Wall-clock (seconds)",     "w": 110, "align": "right"},
+                {"title": "Peak RAM",      "annot": "Peak memory (KB)",         "w": 115, "align": "right"},
+                {"title": "Move Sequence", "annot": "Click row to view full",   "w": 340, "align": "left"},
+            ]
+
+            # ── Header row ──
+            hx = 50
+            header_y = table_top + 12
+            annot_y = header_y + 18
+            for col in columns:
+                hs = font_head.render(col["title"], True, C_CYAN)
+                self.screen.blit(hs, (hx, header_y))
+                ans = font_annot.render(col["annot"], True, C_TEXT_DIM)
+                self.screen.blit(ans, (hx, annot_y))
+                hx += col["w"]
+
+            # Header separator
+            sep_y = annot_y + 18
+            pygame.draw.line(self.screen, C_BORDER, (40, sep_y), (bm_size[0] - 40, sep_y), 1)
+
+            # ── Data rows ──
+            row_y = sep_y + 12
+            best_time = min((r['time_sec'] for r in results if r['solved']), default=None)
+            best_steps = min((r['moves_count'] for r in results if r['solved']), default=None)
+            best_mem = min((r['peak_mem_kb'] for r in results if r['solved']), default=None)
+
+            for idx, r in enumerate(results):
+                # Row hover / selected highlight
+                row_rect = pygame.Rect(35, row_y - 4, bm_size[0] - 70, 50)
+                is_hover = row_rect.collidepoint(mouse_pos)
+                is_sel = (selected_row == idx)
+
+                if is_sel:
+                    pygame.draw.rect(self.screen, (28, 45, 70), row_rect, border_radius=4)
+                    pygame.draw.rect(self.screen, C_BORDER_ACCENT, row_rect, width=1, border_radius=4)
+                elif is_hover:
+                    pygame.draw.rect(self.screen, (25, 32, 50), row_rect, border_radius=4)
+
+                rx = 50
+                # 1. Algorithm name
+                algo_surf = font_data_bold.render(r['algorithm'], True, C_TEXT)
+                self.screen.blit(algo_surf, (rx, row_y + 2))
+                rx += columns[0]["w"]
+
+                # 2. Status
+                if r['solved']:
+                    st_col = C_GREEN
+                    st_txt = "✓ Success"
+                else:
+                    st_col = C_RED
+                    st_txt = "✗ Failed"
+                self.screen.blit(font_data.render(st_txt, True, st_col), (rx, row_y + 2))
+                rx += columns[1]["w"]
+
+                # 3. Steps (right-aligned)
+                steps_str = str(r['moves_count']) if r['solved'] else "—"
+                steps_col = C_GREEN if (r['solved'] and best_steps is not None and r['moves_count'] == best_steps) else C_TEXT
+                ss = font_data.render(steps_str, True, steps_col)
+                self.screen.blit(ss, (rx + columns[2]["w"] - ss.get_width() - 8, row_y + 2))
+                rx += columns[2]["w"]
+
+                # 4. Visited states (right-aligned)
+                vis_str = f"{r['visited']:,}"
+                vs = font_data.render(vis_str, True, C_TEXT_MUTED)
+                self.screen.blit(vs, (rx + columns[3]["w"] - vs.get_width() - 8, row_y + 2))
+                rx += columns[3]["w"]
+
+                # 5. Time (right-aligned, highlight best)
+                time_str = f"{r['time_sec']:.5f} s"
+                time_col = C_GREEN if (r['solved'] and best_time is not None and r['time_sec'] == best_time) else C_CYAN
+                ts = font_data.render(time_str, True, time_col)
+                self.screen.blit(ts, (rx + columns[4]["w"] - ts.get_width() - 8, row_y + 2))
+                rx += columns[4]["w"]
+
+                # 6. Peak memory (right-aligned, highlight best)
+                mem_str = f"{r['peak_mem_kb']:.1f} KB"
+                mem_col = C_GREEN if (r['solved'] and best_mem is not None and r['peak_mem_kb'] == best_mem) else C_ORANGE
+                ms = font_data.render(mem_str, True, mem_col)
+                self.screen.blit(ms, (rx + columns[5]["w"] - ms.get_width() - 8, row_y + 2))
+                rx += columns[5]["w"]
+
+                # 7. Moves preview (truncated, hint to click)
+                if r['solved']:
+                    full_moves = r['moves_str']
+                    max_preview = 42
+                    if len(full_moves) > max_preview:
+                        preview = full_moves[:max_preview] + "…"
+                    else:
+                        preview = full_moves
+                    m_col = C_TEXT_MUTED if not is_sel else (200, 220, 255)
+                    self.screen.blit(font_moves.render(preview, True, m_col), (rx, row_y + 4))
+                    # Click hint on second line
+                    if not is_sel and len(full_moves) > max_preview:
+                        hint = font_annot.render("(click to view full)", True, C_TEXT_DIM)
+                        self.screen.blit(hint, (rx, row_y + 20))
+                else:
+                    self.screen.blit(font_data.render("—", True, C_TEXT_DIM), (rx, row_y + 2))
+
+                # Row separator
+                pygame.draw.line(self.screen, (32, 40, 56), (45, row_y + 46), (bm_size[0] - 45, row_y + 46), 1)
+                row_y += 56
+
+            # ── Expanded moves detail panel ──
+            detail_top = table_top + table_h + 12
+            detail_h = bm_size[1] - detail_top - 72
+            detail_rect = pygame.Rect(30, detail_top, bm_size[0] - 60, detail_h)
+            pygame.draw.rect(self.screen, C_PANEL, detail_rect, border_radius=8)
+            pygame.draw.rect(self.screen, C_BORDER, detail_rect, width=1, border_radius=8)
+
+            if selected_row >= 0 and selected_row < len(results):
+                sr = results[selected_row]
+                # Panel title
+                dt_title = font_head.render(
+                    f"📋 FULL MOVE SEQUENCE — {sr['algorithm']}  ({sr['moves_count']} moves)",
+                    True, C_CYAN
+                )
+                self.screen.blit(dt_title, (45, detail_top + 8))
+
+                if sr['solved']:
+                    full_text = sr['moves_str']
+                    # Wrap the move string into lines
+                    chars_per_line = 110
+                    wrapped = []
+                    for i in range(0, len(full_text), chars_per_line):
+                        wrapped.append(full_text[i:i + chars_per_line])
+
+                    # Clip rendering to panel
+                    clip_rect = pygame.Rect(38, detail_top + 28, bm_size[0] - 76, detail_h - 36)
+                    self.screen.set_clip(clip_rect)
+                    ty = detail_top + 30 - moves_scroll_y
+                    for line_text in wrapped:
+                        if ty + 14 > detail_top + 26 and ty < detail_top + detail_h - 6:
+                            self.screen.blit(font_moves.render(line_text, True, C_TEXT), (45, ty))
+                        ty += 15
+                    # Clamp scroll
+                    max_scroll = max(0, len(wrapped) * 15 - (detail_h - 40))
+                    if moves_scroll_y > max_scroll:
+                        moves_scroll_y = max_scroll
+                    self.screen.set_clip(None)
+
+                    # Scroll indicator
+                    if max_scroll > 0:
+                        bar_h = max(12, int((detail_h - 36) * (detail_h - 36) / (len(wrapped) * 15)))
+                        bar_y = detail_top + 28 + int((detail_h - 36 - bar_h) * moves_scroll_y / max_scroll) if max_scroll > 0 else detail_top + 28
+                        bar_rect = pygame.Rect(bm_size[0] - 48, bar_y, 6, bar_h)
+                        pygame.draw.rect(self.screen, C_BORDER_ACCENT, bar_rect, border_radius=3)
+                else:
+                    no_sol = font_data.render("The algorithm could not find a solution for this level.", True, C_RED)
+                    self.screen.blit(no_sol, (45, detail_top + 32))
+            else:
+                # No row selected hint
+                hint_surf = font_data.render("👆 Click any row in the table to view the full move sequence", True, C_TEXT_DIM)
+                self.screen.blit(hint_surf, (bm_size[0] // 2 - hint_surf.get_width() // 2, detail_top + detail_h // 2 - 8))
+
+            # ── Legend bar ──
+            legend_y = bm_size[1] - 64
+            legend_items = [
+                ("■", C_GREEN, " Best metric"),
+                ("■", C_CYAN, " Search Time"),
+                ("■", C_ORANGE, " Peak Memory"),
+            ]
+            lx = 40
+            for symbol, color, label in legend_items:
+                sym_s = font_annot.render(symbol, True, color)
+                lab_s = font_annot.render(label, True, C_TEXT_DIM)
+                self.screen.blit(sym_s, (lx, legend_y))
+                self.screen.blit(lab_s, (lx + 12, legend_y))
+                lx += sym_s.get_width() + lab_s.get_width() + 22
+
+            btn_back.draw(self.screen, mouse_pos, self.font_btn)
+            pygame.display.flip()
+            self.clock.tick(30)
+
+        # Restore original window size
+        self.screen = pygame.display.set_mode(self.size)
+        pygame.display.set_caption("Bloxorz AI - Menu Launcher")
+
+    def run(self):
+        """Main loop of the GUI menu."""
+        pygame.init()
+        self.screen = pygame.display.set_mode(self.size)
+        pygame.display.set_caption("Bloxorz AI - Menu Launcher")
+        self.clock = pygame.time.Clock()
+
+        while self.running:
+            for event in pygame.event.get():
+                action = self.handle_event(event)
+                if action:
+                    return action
+
+            self.draw(self.screen)
+            pygame.display.flip()
+            self.clock.tick(60)
+
+        return {'action': 'exit'}

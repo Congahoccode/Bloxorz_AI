@@ -54,14 +54,18 @@ class tile:
                 if self.type == tile.SPACE:
                     if self.obj != None:
                         if self.obj.symbol == "$":
-                            return True
+                            return box.is_doubleBox() and box.is_standing()
                         else: return False
                     else: return False
-                # Orange
+                # Orange (fragile tile)
                 elif self.type == tile.ORANGE:
-                    if not box.is_standing():
+                    if box.is_doubleBox():
+                        # Only withstands when lying horizontal or vertical
+                        return not box.is_standing()
+                    elif box.is_singleBox():
+                        # Single 1x1x1 block is light enough to walk on orange tiles
                         return True
-                    else: return False
+                    return False
                 # Rock
                 elif self.type == tile.ROCK: 
                     return True

@@ -1,0 +1,90 @@
+{
+  "level": 16,
+  "size": [8, 14],
+  "start": [1, 1],
+  "end": [4, 12],
+  "box": {
+    "state": 2,
+    "symbol": "#",
+    "location": [[1, 1]]
+  },
+  "tiles": {
+    "orange": 2,
+    "rock": 1,
+    "space": 0
+  },
+  "bridge": {
+    "count": 3,
+    "symbol": ["c1", "c2", "c3"],
+    "c1": {
+      "active": false,
+      "location": [[3, 3]],
+      "mode": "toggle"
+    },
+    "c2": {
+      "active": false,
+      "location": [[5, 3]],
+      "mode": "toggle"
+    },
+    "c3": {
+      "active": false,
+      "location": [[4, 10]],
+      "mode": "permanent"
+    }
+  },
+  "swQ": {
+    "count": 2,
+    "symbol": ["q1", "q2"],
+    "q1": {
+      "type": 0,
+      "active": false,
+      "location": [3, 2],
+      "bridge": "c2"
+    },
+    "q2": {
+      "type": 0,
+      "active": false,
+      "location": [5, 2],
+      "bridge": "c1"
+    }
+  },
+  "swX": {
+    "count": 1,
+    "symbol": ["x1"],
+    "x1": {
+      "type": 1,
+      "active": false,
+      "location": [4, 8],
+      "bridge": "c3"
+    }
+  },
+  "swO": {
+    "count": 1,
+    "symbol": ["o1"],
+    "o1": {
+      "split": true,
+      "location": [1, 4],
+      "box1": {
+        "symbol": "#1",
+        "state": 1,
+        "location": [[3, 1]]
+      },
+      "box2": {
+        "symbol": "#2",
+        "state": 1,
+        "location": [[5, 1]]
+      }
+    }
+  },
+  "maps": [
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 0, 1, 0, 0],
+    [0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  ]
+}
+
