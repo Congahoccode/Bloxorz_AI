@@ -104,11 +104,39 @@ def performance(solution, level, algorithm):
         return
 
 
-def build_snapshots(level_path, solution):
+def build_snapshots(level_path, solution, actions=None):
     """Precompute physical state snapshots for each step in solution to allow instant bidirectional replay."""
     m = maps(level_path)
     ctrl = Control(m)
     ctrl.Play_handle = True
+
+    def snapshot():
+        return {
+            'current': deepcopy(ctrl.current),
+            'maps': deepcopy(ctrl.maps.maps),
+            'is_split': ctrl.maps.is_split,
+            'split_boxes': deepcopy(ctrl.maps.split_boxes),
+            'active_box_index': ctrl.maps.active_box_index
+        }
+
+    if actions is not None:
+        snapshots = [snapshot()]
+        move_map = {
+            'U': ctrl.move_up,
+            'D': ctrl.move_down,
+            'R': ctrl.move_right,
+            'L': ctrl.move_left,
+        }
+        for action in actions:
+            if action == 'SW':
+                moved = ctrl.switch_box()
+            else:
+                move = move_map.get(action)
+                moved = move() if move else False
+            if not moved:
+                raise ValueError(f"Cannot replay invalid solver action: {action}")
+            snapshots.append(snapshot())
+        return snapshots
 
     snapshots = []
     for step in solution:
@@ -116,13 +144,7 @@ def build_snapshots(level_path, solution):
         ctrl.update_box_locaton_for_maps(deepcopy(step))
         ctrl.maps.refreshBox()
         ctrl.update_current_location()
-        snapshots.append({
-            'current': deepcopy(ctrl.current),
-            'maps': deepcopy(ctrl.maps.maps),
-            'is_split': ctrl.maps.is_split,
-            'split_boxes': deepcopy(ctrl.maps.split_boxes),
-            'active_box_index': ctrl.maps.active_box_index
-        })
+        snapshots.append(snapshot())
     return snapshots
 
 
@@ -147,8 +169,8 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
         print("No solution to display!")
         return
 
-    moves = solution_to_moves(solution)
-    snapshots = build_snapshots(level, solution)
+    moves = (metrics or {}).get('actions') or solution_to_moves(solution)
+    snapshots = build_snapshots(level, solution, (metrics or {}).get('actions'))
     total_steps = len(snapshots)
 
     pygame.init()
@@ -357,6 +379,7 @@ def run_solver(level_path, algorithm_enum):
 
     sol = None
     visited_count = 0
+    solver_actions = None
 
     if func is not None:
         try:
@@ -407,8 +430,13 @@ def run_solver(level_path, algorithm_enum):
     _, peak_mem = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    # If solution is move strings like ['U', 'R', ...], convert to state sequence
-    if sol and isinstance(sol, list) and len(sol) > 0 and isinstance(sol[0], str) and sol[0].upper() in ['U', 'D', 'L', 'R', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'SW', 'SPACE']:
+    # If the solver returned move strings, convert them to a replayable state sequence.
+    move_tokens = {'U', 'D', 'L', 'R', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'SW', 'SPACE'}
+    if isinstance(sol, list) and all(
+        isinstance(move, str) and move.upper() in move_tokens
+        for move in sol
+    ):
+        solver_actions = [move.upper() for move in sol]
         move_map = {
             'U': 'move_up', 'UP': 'move_up',
             'D': 'move_down', 'DOWN': 'move_down',
@@ -423,12 +451,11 @@ def run_solver(level_path, algorithm_enum):
         for m_str in sol:
             action = move_map.get(m_str.upper())
             if action == 'switch':
-                c_temp.maps.switch_box()
-                c_temp.update_current_location()
+                c_temp.switch_box()
             elif action:
                 getattr(c_temp, action)()
             states.append(deepcopy(c_temp.current))
-        moves = [m_str.upper() for m_str in sol]
+        moves = solver_actions
         sol = states
     else:
         moves = solution_to_moves(sol) if sol else []
@@ -440,6 +467,7 @@ def run_solver(level_path, algorithm_enum):
         'steps': len(sol) if sol else 0,
         'moves_count': len(moves),
         'moves_str': format_moves(moves) if moves else "—",
+        'actions': solver_actions,
         'visited': visited_count,
         'time_sec': t_elapsed,
         'peak_mem_kb': peak_mem / 1024.0
