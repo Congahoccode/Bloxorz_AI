@@ -112,6 +112,31 @@ def heuristic_euclidean(cells, goal, min_step_cost=1.0):
 
 def calc_heuristic(cells, goal, heur_type='bloxorz_admissible', min_step_cost=1.0):
     """Điều phối tính toán hàm heuristic theo loại cấu hình."""
+    # Khi block bị tách thành 2 khối 1x1 độc lập:
+    if len(cells) == 3:
+        b1 = cells[0][0]
+        b2 = cells[1][0]
+        rg, cg = goal
+        if heur_type in ('bloxorz_admissible', 'admissible', 'optimal'):
+            h_b1 = math.ceil(abs(b1[0] - rg) / 2.0) + math.ceil(abs(b1[1] - cg) / 2.0)
+            h_b2 = math.ceil(abs(b2[0] - rg) / 2.0) + math.ceil(abs(b2[1] - cg) / 2.0)
+            manhattan_dist = abs(b1[0] - b2[0]) + abs(b1[1] - b2[1])
+            h_merge = math.ceil(max(0, manhattan_dist - 1) / 2.0)
+            return max(h_b1, h_b2, h_merge) * min_step_cost
+        elif heur_type in ('manhattan', 'l1', 'greedy'):
+            d1 = abs(b1[0] - rg) + abs(b1[1] - cg)
+            d2 = abs(b2[0] - rg) + abs(b2[1] - cg)
+            d_merge = abs(b1[0] - b2[0]) + abs(b1[1] - b2[1])
+            return max((d1 + d2) / 2.0, d_merge / 2.0) * min_step_cost
+        elif heur_type in ('euclidean', 'l2'):
+            cr = (b1[0] + b2[0]) / 2.0
+            cc = (b1[1] + b2[1]) / 2.0
+            dist = math.sqrt((cr - rg) ** 2 + (cc - cg) ** 2)
+            return (dist / 1.5) * min_step_cost
+        elif heur_type in ('none', 'zero'):
+            return 0.0
+        return 0.0
+
     if heur_type in ('bloxorz_admissible', 'admissible', 'optimal'):
         return heuristic_bloxorz_admissible(cells, goal, min_step_cost)
     elif heur_type in ('manhattan', 'l1', 'greedy'):
@@ -215,11 +240,16 @@ def build_result(level, goal_state, parent, total_cost, expanded):
 
     path = []
     for s in states:
-        cells = [[c[0], c[1]] for c in s[0]]
-        path.append(cells)
+        cells = s[0]
+        if len(cells) == 3:
+            loc1 = [[cells[0][0][0], cells[0][0][1]]]
+            loc2 = [[cells[1][0][0], cells[1][0][1]]]
+            path.append((loc1, loc2, cells[2]))
+        else:
+            path.append([[c[0], c[1]] for c in cells])
 
     return {
-        "actions": "".join(actions),
+        "actions": actions,
         "path": path,
         "cost": total_cost,
         "expanded": expanded

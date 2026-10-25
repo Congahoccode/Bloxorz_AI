@@ -24,3 +24,5 @@ build/
 .idea/
 app_status.md
 ucs_solver_notes.md
+A_STAR_COMPARISON.md
+*.csv

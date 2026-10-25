@@ -55,6 +55,7 @@ class Display:
         self.btn_prev_algo_rect = pygame.Rect(0, 0, 0, 0)
         self.btn_next_algo_rect = pygame.Rect(0, 0, 0, 0)
         self.replay_btn_rect = pygame.Rect(0, 0, 0, 0)
+        self.speed_bar_rect = pygame.Rect(0, 0, 0, 0)
 
         # HUD fonts (lazy init)
         self._fonts_initialized = False
@@ -574,7 +575,62 @@ class Display:
 
             step_str = f"Step: {current_step} / {total_steps - 1}"
             draw_label_value("", step_str, (255, 255, 255))
-            draw_label_value("Speed:", speed_label, (249, 115, 22))
+
+            # ── Speed row: "Speed:" + interactive bar + "1.0x" on same horizontal line ──
+            lbl_speed = self._font_label.render("Speed:", True, (140, 155, 175))
+            val_speed = self._font_value.render(str(speed_label), True, (249, 115, 22))
+
+            speed_line_h = max(lbl_speed.get_height(), val_speed.get_height(), 16)
+            self._render_text_to_gl(lbl_speed, sb_x + pad, cy + (speed_line_h - lbl_speed.get_height()) // 2)
+
+            val_x = sw - pad - val_speed.get_width()
+            self._render_text_to_gl(val_speed, val_x, cy + (speed_line_h - val_speed.get_height()) // 2)
+
+            bar_x = sb_x + pad + lbl_speed.get_width() + 8
+            bar_w = val_x - 8 - bar_x
+            bar_h = 14
+            bar_y = cy + (speed_line_h - bar_h) // 2
+            self.speed_bar_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+
+            # Determine speed index and count
+            speed_labels_default = ['0.4x', '0.7x', '1.0x', '1.7x', '3.3x', '6.5x']
+            s_count = info.get('speed_count', len(speed_labels_default))
+            if 'speed_idx' in info:
+                s_idx = info['speed_idx']
+            else:
+                s_idx = speed_labels_default.index(speed_label) if speed_label in speed_labels_default else 2
+            s_idx = max(0, min(s_count - 1, s_idx))
+
+            # Draw track background
+            is_hover = self.speed_bar_rect.collidepoint(mouse_pos)
+            track_border = (0.15, 0.80, 1.0, 1.0) if is_hover else (0.22, 0.28, 0.40, 0.9)
+            draw_rect_2d(bar_x, bar_y, bar_w, bar_h, (0.10, 0.12, 0.18, 1.0), track_border)
+
+            # Draw filled portion of speed bar
+            fill_ratio = (s_idx + 1) / max(1, s_count)
+            fill_w = max(4, int(bar_w * fill_ratio))
+            draw_rect_2d(bar_x + 1, bar_y + 1, fill_w - 2, bar_h - 2, (0.98, 0.45, 0.08, 0.85))
+
+            # Draw segment dividers
+            for seg in range(1, s_count):
+                seg_x = bar_x + int(bar_w * (seg / s_count))
+                glDisable(GL_TEXTURE_2D)
+                gl_sy = sh - bar_y - bar_h
+                glColor4f(0.3, 0.35, 0.45, 0.5)
+                glLineWidth(1.0)
+                glBegin(GL_LINES)
+                glVertex2f(seg_x, gl_sy + 2)
+                glVertex2f(seg_x, gl_sy + bar_h - 2)
+                glEnd()
+                glEnable(GL_TEXTURE_2D)
+
+            # Draw active handle/thumb knob
+            knob_x = bar_x + int(bar_w * ((s_idx + 0.5) / s_count)) - 3
+            knob_w = 6
+            knob_h = bar_h + 2
+            draw_rect_2d(knob_x, bar_y - 1, knob_w, knob_h, (1.0, 1.0, 1.0, 1.0), (0.20, 0.80, 1.0, 1.0))
+
+            cy += speed_line_h + 10
 
             # ── Interactive Start / Pause Button ──
             btn_play_w = sb_w - pad * 2
@@ -656,54 +712,65 @@ class Display:
 
             draw_sep()
 
-        # ── Section: Metrics (if available) ──
+        # ── Section: Metrics (2 columns: Search Time & Peak RAM) ──
         if metrics:
             draw_sep()
             sec4 = self._font_small.render("METRICS", True, (14, 165, 233))
             self._render_text_to_gl(sec4, sb_x + pad, cy)
             cy += sec4.get_height() + 4
 
-            if 'time_sec' in metrics:
-                draw_label_value("Search time:", f"{metrics['time_sec']:.4f} s", (6, 182, 212))
-            if 'peak_mem_kb' in metrics:
-                draw_label_value("Peak RAM:", f"{metrics['peak_mem_kb']:.1f} KB", (249, 115, 22))
-            if 'visited' in metrics:
-                draw_label_value("Explored states:", f"{metrics['visited']:,}", (180, 180, 200))
+            col_gap = 8
+            col_w = (sb_w - pad * 2 - col_gap) // 2
+            col1_x = sb_x + pad
+            col2_x = col1_x + col_w + col_gap
+            card_h = 42
+
+            # Column 1: Search Time
+            time_sec = metrics.get('time_sec', 0.0)
+            time_str = f"{time_sec:.4f} s" if time_sec >= 0.0001 else (f"{time_sec * 1000:.2f} ms" if time_sec > 0 else "0.0000 s")
+
+            draw_rect_2d(col1_x, cy, col_w, card_h, (0.08, 0.10, 0.15, 1.0), (0.18, 0.24, 0.35, 0.8))
+            lbl1 = self._font_small.render("Search Time", True, (140, 155, 175))
+            self._render_text_to_gl(lbl1, col1_x + 8, cy + 4)
+            val1 = self._font_value.render(time_str, True, (6, 182, 212))
+            self._render_text_to_gl(val1, col1_x + 8, cy + 20)
+
+            # Column 2: Peak RAM
+            mem_kb = metrics.get('peak_mem_kb', 0.0)
+            mem_str = f"{mem_kb / 1024.0:.2f} MB" if mem_kb >= 1024.0 else f"{mem_kb:.1f} KB"
+
+            draw_rect_2d(col2_x, cy, col_w, card_h, (0.08, 0.10, 0.15, 1.0), (0.18, 0.24, 0.35, 0.8))
+            lbl2 = self._font_small.render("Peak RAM", True, (140, 155, 175))
+            self._render_text_to_gl(lbl2, col2_x + 8, cy + 4)
+            val2 = self._font_value.render(mem_str, True, (249, 115, 22))
+            self._render_text_to_gl(val2, col2_x + 8, cy + 20)
+
+            cy += card_h + 8
 
         # ── Section: Keyboard Shortcuts (bottom) ──
         shortcut_block = info.get('shortcuts', None)
         if shortcut_block is None:
             if mode == 'replay':
                 shortcut_block = [
-                    ("[< / >]", "Prev / Next Level"),
-                    ("[A / Tab]", "Switch Algorithm"),
                     ("[Space]", "Play / Pause"),
-                    ("[<- / ->]", "Step back / fwd"),
+                    ("[Tab]", "Switch Algorithm"),
                     ("[R]", "Reset replay"),
-                    ("[P]", "Play manually"),
                     ("[+/-]", "Change speed"),
-                    ("[Left-drag]", "360° Orbit"),
-                    ("[Scroll]", "Zoom In/Out"),
-                    ("[1-4] [C]", "Presets / Reset"),
-                    ("[H] [ESC]", "Sidebar / Menu"),
+                    ("[ESC]", "Exit / Menu"),
                 ]
             else:
                 shortcut_block = [
-                    ("[< / >]", "Prev / Next Level"),
-                    ("[A / Tab]", "Solve with AI"),
                     ("[Arrow Keys]", "Move block"),
                     ("[Space]", "Switch block (split)"),
+                    ("[Tab]", "Solve with AI"),
                     ("[R]", "Restart level"),
-                    ("[Left-drag]", "360° Orbit"),
-                    ("[Scroll]", "Zoom In/Out"),
-                    ("[1-4] [C]", "Presets / Reset"),
-                    ("[H] [ESC]", "Sidebar / Menu"),
+                    ("[ESC]", "Exit / Menu"),
                 ]
 
         # Render from bottom up
         sc_y = sh - 14
         for key, desc in reversed(shortcut_block):
-            sc_y -= 15
+            sc_y -= 16
             ks = self._font_key.render(key, True, (180, 200, 230))
             ds = self._font_small.render(f" {desc}", True, (110, 120, 140))
             self._render_text_to_gl(ks, sb_x + pad, sc_y)
