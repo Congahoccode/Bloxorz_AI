@@ -57,6 +57,43 @@ def solution_to_moves(solution):
                 elif isinstance(s_next, tuple):  # Triggered split switch
                     found = name
                     break
+
+        # Fallback coordinate geometry deduction if cube simulation failed
+        if found is None and isinstance(s_cur, list) and isinstance(s_next, list):
+            cur_sorted = sorted(s_cur)
+            next_sorted = sorted(s_next)
+            # Case 1: standing -> lying
+            if len(cur_sorted) == 1 and len(next_sorted) == 2:
+                r, c = cur_sorted[0]
+                if next_sorted == [[r, c + 1], [r, c + 2]]: found = 'R'
+                elif next_sorted == [[r, c - 2], [r, c - 1]]: found = 'L'
+                elif next_sorted == [[r + 1, c], [r + 2, c]]: found = 'D'
+                elif next_sorted == [[r - 2, c], [r - 1, c]]: found = 'U'
+            # Case 2: lying -> standing
+            elif len(cur_sorted) == 2 and len(next_sorted) == 1:
+                nr, nc = next_sorted[0]
+                if cur_sorted[0][0] == cur_sorted[1][0]:
+                    r = cur_sorted[0][0]
+                    c1, c2 = min(cur_sorted[0][1], cur_sorted[1][1]), max(cur_sorted[0][1], cur_sorted[1][1])
+                    if [nr, nc] == [r, c2 + 1]: found = 'R'
+                    elif [nr, nc] == [r, c1 - 1]: found = 'L'
+                elif cur_sorted[0][1] == cur_sorted[1][1]:
+                    c = cur_sorted[0][1]
+                    r1, r2 = min(cur_sorted[0][0], cur_sorted[1][0]), max(cur_sorted[0][0], cur_sorted[1][0])
+                    if [nr, nc] == [r2 + 1, c]: found = 'D'
+                    elif [nr, nc] == [r1 - 1, c]: found = 'U'
+            # Case 3: lying -> lying (slide)
+            elif len(cur_sorted) == 2 and len(next_sorted) == 2:
+                dr0 = next_sorted[0][0] - cur_sorted[0][0]
+                dc0 = next_sorted[0][1] - cur_sorted[0][1]
+                dr1 = next_sorted[1][0] - cur_sorted[1][0]
+                dc1 = next_sorted[1][1] - cur_sorted[1][1]
+                if dr0 == dr1 and dc0 == dc1:
+                    if (dr0, dc0) == (-1, 0): found = 'U'
+                    elif (dr0, dc0) == (1, 0): found = 'D'
+                    elif (dr0, dc0) == (0, -1): found = 'L'
+                    elif (dr0, dc0) == (0, 1): found = 'R'
+
         moves.append(found if found else '?')
     return moves
 
@@ -327,6 +364,16 @@ def astar(state: Control):
     return astar_base(state, 'l1')
 
 
+def _get_avail_levels():
+    import re
+    lvl_dir = "./level"
+    if not os.path.exists(lvl_dir):
+        return []
+    def n_key(s):
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)]
+    return [os.path.join(lvl_dir, f) for f in sorted(os.listdir(lvl_dir), key=n_key) if f.endswith(".json")]
+
+
 def handle(state: Control, map_size=(0, 0)):
     state.Play_handle = True
     pygame.init()
@@ -334,9 +381,25 @@ def handle(state: Control, map_size=(0, 0)):
     result = True
     clock = pygame.time.Clock()
 
-    # Save initial state for restart
+    # Save initial state for restart & level switching
     initial_maps_obj = state.maps
     level_path = initial_maps_obj.path if hasattr(initial_maps_obj, 'path') else None
+
+    available_levels = _get_avail_levels()
+    if not available_levels and level_path:
+        available_levels = [level_path]
+
+    current_level_idx = 0
+    if level_path:
+        cur_abs = os.path.abspath(level_path) if os.path.exists(level_path) else level_path
+        for idx, lp in enumerate(available_levels):
+            if os.path.abspath(lp) == cur_abs or os.path.basename(lp) == os.path.basename(level_path):
+                current_level_idx = idx
+                level_path = lp
+                break
+
+    algo_names_list = ['A*', 'BFS', 'DFS', 'UCS']
+    current_algo_idx = 0
 
     move_count = 0
     move_history = []  # list of direction chars
@@ -351,7 +414,7 @@ def handle(state: Control, map_size=(0, 0)):
         return {
             'mode': 'play',
             'level_name': lvl_name,
-            'algo_name': '',
+            'algo_name': algo_names_list[current_algo_idx],
             'current_step': move_count,
             'total_steps': move_count + 1,
             'status': status,
@@ -362,16 +425,47 @@ def handle(state: Control, map_size=(0, 0)):
             'split_active': state.maps.is_split,
         }
 
+    def load_level(new_path):
+        nonlocal state, level_path, lvl_name, result, move_count, move_history, status
+        level_path = new_path
+        lvl_name = os.path.basename(level_path).replace(".json", "")
+        new_maps = maps(level_path)
+        state.__init__(new_maps)
+        state.Play_handle = True
+        result = True
+        move_count = 0
+        move_history = []
+        status = "PLAYING"
+
+        display.rows = new_maps.size[0] if new_maps.size[0] > 0 else 6
+        display.cols = new_maps.size[1] if new_maps.size[1] > 0 else 10
+        display.target = [display.cols / 2.0, -display.rows / 2.0, 0.5]
+        display.initial_target = list(display.target)
+        display.distance = max(display.cols, display.rows) * 1.5 + 4.0
+        display.initial_distance = display.distance
+        display.setup_camera()
+
     def do_restart():
-        nonlocal state, result, move_count, move_history, status
         if level_path and os.path.exists(level_path):
-            new_maps = maps(level_path)
-            state.__init__(new_maps)
-            state.Play_handle = True
-            result = True
-            move_count = 0
-            move_history = []
-            status = "PLAYING"
+            load_level(level_path)
+
+    def launch_solver_replay(lvl, algo_str):
+        try:
+            from run import run_solver, draw_path_3D, algorithm_by_str
+            algo_enum = algorithm_by_str.get(algo_str.lower(), 4)
+            sol, metrics = run_solver(lvl, algo_enum)
+            m = maps(lvl)
+            draw_path_3D(
+                sol,
+                level=lvl,
+                map_size=(m.size[0], m.size[1]),
+                algo_name=algo_str,
+                metrics=metrics,
+                algorithm_enum=algo_enum
+            )
+            load_level(lvl)
+        except Exception as e:
+            print(f"Error launching solver replay: {e}")
 
     # Initial render
     state.draw_maps()
@@ -386,6 +480,35 @@ def handle(state: Control, map_size=(0, 0)):
                 pygame.quit()
                 return
 
+            # Mouse button clicks in sidebar
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Level < button
+                if hasattr(display, 'btn_prev_level_rect') and display.btn_prev_level_rect.collidepoint(event.pos):
+                    if available_levels:
+                        current_level_idx = (current_level_idx - 1) % len(available_levels)
+                        load_level(available_levels[current_level_idx])
+                        moved = True
+                        continue
+                # Level > button
+                elif hasattr(display, 'btn_next_level_rect') and display.btn_next_level_rect.collidepoint(event.pos):
+                    if available_levels:
+                        current_level_idx = (current_level_idx + 1) % len(available_levels)
+                        load_level(available_levels[current_level_idx])
+                        moved = True
+                        continue
+                # Algorithm < button
+                elif hasattr(display, 'btn_prev_algo_rect') and display.btn_prev_algo_rect.collidepoint(event.pos):
+                    current_algo_idx = (current_algo_idx - 1) % len(algo_names_list)
+                    launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    moved = True
+                    continue
+                # Algorithm > button
+                elif hasattr(display, 'btn_next_algo_rect') and display.btn_next_algo_rect.collidepoint(event.pos):
+                    current_algo_idx = (current_algo_idx + 1) % len(algo_names_list)
+                    launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    moved = True
+                    continue
+
             if display.handle_camera_event(event):
                 continue
 
@@ -393,6 +516,34 @@ def handle(state: Control, map_size=(0, 0)):
                 # Restart
                 if event.key == pygame.K_r:
                     do_restart()
+                    moved = True
+                    continue
+
+                # Level navigation shortcuts: [ / ] or , / . or PageUp / PageDown or < / >
+                if event.key in [pygame.K_LEFTBRACKET, pygame.K_COMMA, pygame.K_PAGEUP, pygame.K_LESS]:
+                    if available_levels:
+                        current_level_idx = (current_level_idx - 1) % len(available_levels)
+                        load_level(available_levels[current_level_idx])
+                        moved = True
+                        continue
+                elif event.key in [pygame.K_RIGHTBRACKET, pygame.K_PERIOD, pygame.K_PAGEDOWN, pygame.K_GREATER]:
+                    if available_levels:
+                        current_level_idx = (current_level_idx + 1) % len(available_levels)
+                        load_level(available_levels[current_level_idx])
+                        moved = True
+                        continue
+
+                # Algorithm / AI solve shortcuts: Tab or A
+                elif event.key == pygame.K_TAB:
+                    mods = pygame.key.get_mods()
+                    direction = -1 if (mods & pygame.KMOD_SHIFT) else 1
+                    current_algo_idx = (current_algo_idx + direction) % len(algo_names_list)
+                    launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    moved = True
+                    continue
+                elif event.key == pygame.K_a:
+                    current_algo_idx = (current_algo_idx + 1) % len(algo_names_list)
+                    launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
                     moved = True
                     continue
 
