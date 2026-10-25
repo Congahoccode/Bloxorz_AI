@@ -39,18 +39,19 @@ class Box:
     ])
 
     @staticmethod
-    def draw_box(position, size, face_color=(0.2470588235294118, 0.2823529411764706, 0.8), border_color=(0.8, 0.8, 0.8)):
-        Box.draw_border(position, size, border_color)
+    def draw_box(position, size, face_color=(0.2470588235294118, 0.2823529411764706, 0.8, 0.65), border_color=(0.8, 0.8, 0.8, 1.0)):
         Box.draw_faces(position, size, face_color)
+        Box.draw_border(position, size, border_color)
 
 
     @staticmethod
     def draw_faces(position, size, face_color):
         pos_x, pos_y = position
         size_x, size_y, size_z = size
+        col = face_color if len(face_color) == 4 else (*face_color, 1.0)
         for i, face in enumerate(Box.faces):
             glBegin(GL_POLYGON)
-            glColor(face_color)
+            glColor4f(*col)
             for vertex in face:
                 glVertex3f(Box.vertices[vertex, 0] * size_x + pos_x,
                         -(Box.vertices[vertex, 1] * size_y + pos_y),
@@ -61,8 +62,9 @@ class Box:
     def draw_border(position, size, border_color):
         pos_x, pos_y = position
         size_x, size_y, size_z = size
+        col = border_color if len(border_color) == 4 else (*border_color, 1.0)
         glBegin(GL_LINES)
-        glColor(border_color)
+        glColor4f(*col)
         for edge in Box.edges:
             for vertex in edge:
                 glVertex3f(

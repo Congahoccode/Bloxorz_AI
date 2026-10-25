@@ -14,6 +14,7 @@ from drawing.display import Display
 from drawing.gui_menu import GuiMenu
 from model.map import maps
 from model.control import Control
+from model.box import Box
 import timeit
 
 
@@ -140,8 +141,7 @@ def build_snapshots(level_path, solution, actions=None):
 
     snapshots = []
     for step in solution:
-        ctrl.current = deepcopy(step)
-        ctrl.update_box_locaton_for_maps(deepcopy(step))
+        ctrl.set_state(step, ctrl.curr_maps)
         ctrl.maps.refreshBox()
         ctrl.update_current_location()
         snapshots.append(snapshot())
@@ -159,8 +159,9 @@ def apply_snapshot(ctrl, snap):
     if snap['is_split'] and len(snap['split_boxes']) == 2:
         ctrl.maps.current_box = ctrl.maps.split_boxes[snap['active_box_index']]
     else:
-        ctrl.maps.current_box.location = deepcopy(ctrl.current)
-        ctrl.maps.current_box.pre_location = deepcopy(ctrl.current)
+        merged_box = Box("#", 2, deepcopy(ctrl.current))
+        merged_box.on()
+        ctrl.maps.current_box = merged_box
 
 
 def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), algo_name="Solver", metrics=None, algorithm_enum=None):
@@ -237,6 +238,7 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
     speeds = [1.35, 0.85, 0.60, 0.35, 0.18, 0.09]
     speed_labels = ['0.4x', '0.7x', '1.0x', '1.7x', '3.3x', '6.5x']
     speed_idx = 2  # Default 0.60s per step
+    is_dragging_speed = False
 
     current_step = 0
     is_playing = False
@@ -289,6 +291,8 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
             'status': "SOLVING...",
             'moves_str': "Computing path...",
             'speed_label': speed_labels[speed_idx],
+            'speed_idx': speed_idx,
+            'speed_count': len(speeds),
             'metrics': None,
         })
         display.update()
@@ -343,8 +347,16 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
 
             # Mouse button clicks in sidebar
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Speed slider bar click
+                if hasattr(display, 'speed_bar_rect') and display.speed_bar_rect.collidepoint(event.pos):
+                    rel_x = event.pos[0] - display.speed_bar_rect.x
+                    ratio = max(0.0, min(0.999, rel_x / max(1, display.speed_bar_rect.width)))
+                    speed_idx = int(ratio * len(speeds))
+                    is_dragging_speed = True
+                    continue
+
                 # Level < button
-                if hasattr(display, 'btn_prev_level_rect') and display.btn_prev_level_rect.collidepoint(event.pos):
+                elif hasattr(display, 'btn_prev_level_rect') and display.btn_prev_level_rect.collidepoint(event.pos):
                     new_l_idx = (current_level_idx - 1) % len(available_levels)
                     switch_level_and_algo(available_levels[new_l_idx], current_algo)
                     continue
@@ -378,6 +390,18 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
                             is_playing = not is_playing
                             if is_playing:
                                 last_advance_time = time.time()
+                    continue
+
+            # Mouse button release
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                is_dragging_speed = False
+
+            # Mouse drag on speed slider
+            if event.type == pygame.MOUSEMOTION and is_dragging_speed:
+                if hasattr(display, 'speed_bar_rect') and display.speed_bar_rect.width > 0:
+                    rel_x = event.pos[0] - display.speed_bar_rect.x
+                    ratio = max(0.0, min(0.999, rel_x / max(1, display.speed_bar_rect.width)))
+                    speed_idx = int(ratio * len(speeds))
                     continue
 
             if display.handle_camera_event(event):
@@ -497,6 +521,8 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
             'status': status,
             'moves_str': moves_sub_str if moves else ("No solution found" if status == "NO SOLUTION" else ""),
             'speed_label': speed_labels[speed_idx],
+            'speed_idx': speed_idx,
+            'speed_count': len(speeds),
             'metrics': sidebar_metrics,
         })
         display.update()
@@ -610,13 +636,21 @@ def run_solver(level_path, algorithm_enum):
                     sol = res[0]
                     visited_count = len(sol) if isinstance(sol, (list, tuple)) else 0
                 if hasattr(res, 'actions') and res.actions:
-                    solver_actions = list(res.actions)
+                    if isinstance(res.actions, str):
+                        import re
+                        solver_actions = res.actions.split() if ' ' in res.actions else (re.findall(r'SW|[UDLR]', res.actions) if 'SW' in res.actions else list(res.actions))
+                    else:
+                        solver_actions = list(res.actions)
             elif isinstance(res, dict):
                 sol = res.get('path') or res.get('solution') or res.get('moves')
                 visited_count = res.get('visited') or res.get('visited_count') or res.get('expanded') or 0
                 if res.get('actions'):
                     acts = res.get('actions')
-                    solver_actions = list(acts) if isinstance(acts, (list, tuple, str)) else None
+                    if isinstance(acts, str):
+                        import re
+                        solver_actions = acts.split() if ' ' in acts else (re.findall(r'SW|[UDLR]', acts) if 'SW' in acts else list(acts))
+                    else:
+                        solver_actions = list(acts) if isinstance(acts, (list, tuple)) else None
             elif isinstance(res, list):
                 sol = res
                 visited_count = len(res)
