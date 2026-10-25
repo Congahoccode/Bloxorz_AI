@@ -49,6 +49,13 @@ class Display:
         # Sidebar state
         self.sidebar_visible = True
 
+        # Interactive UI button rects (updated during draw_sidebar)
+        self.btn_prev_level_rect = pygame.Rect(0, 0, 0, 0)
+        self.btn_next_level_rect = pygame.Rect(0, 0, 0, 0)
+        self.btn_prev_algo_rect = pygame.Rect(0, 0, 0, 0)
+        self.btn_next_algo_rect = pygame.Rect(0, 0, 0, 0)
+        self.replay_btn_rect = pygame.Rect(0, 0, 0, 0)
+
         # HUD fonts (lazy init)
         self._fonts_initialized = False
         self._font_title = None
@@ -353,6 +360,12 @@ class Display:
         elif status == "GAME OVER":
             badge_col = (220, 60, 60)
             badge_text = "GAME OVER"
+        elif status == "NO SOLUTION":
+            badge_col = (239, 68, 68)
+            badge_text = "NO SOLUTION"
+        elif status == "SOLVING...":
+            badge_col = (249, 115, 22)
+            badge_text = "SOLVING..."
         elif status == "PLAYING":
             badge_col = (14, 165, 233)
             badge_text = "PLAYING"
@@ -379,6 +392,31 @@ class Display:
         self._render_text_to_gl(badge_surf, sb_x + pad + 2, cy + 2)
         cy += bh + 14
 
+        # ── Mouse position for hover detection ──
+        mouse_pos = pygame.mouse.get_pos()
+
+        # ── 2D Rect helper ──
+        def draw_rect_2d(rx, ry, rw, rh, bg_col, border_col=None):
+            glDisable(GL_TEXTURE_2D)
+            gl_y = sh - ry - rh
+            glColor4f(*bg_col)
+            glBegin(GL_QUADS)
+            glVertex2f(rx, gl_y)
+            glVertex2f(rx + rw, gl_y)
+            glVertex2f(rx + rw, gl_y + rh)
+            glVertex2f(rx, gl_y + rh)
+            glEnd()
+            if border_col:
+                glColor4f(*border_col)
+                glLineWidth(1.2)
+                glBegin(GL_LINE_LOOP)
+                glVertex2f(rx, gl_y)
+                glVertex2f(rx + rw, gl_y)
+                glVertex2f(rx + rw, gl_y + rh)
+                glVertex2f(rx, gl_y + rh)
+                glEnd()
+            glEnable(GL_TEXTURE_2D)
+
         # ── Separator helper ──
         def draw_sep():
             nonlocal cy
@@ -403,18 +441,99 @@ class Display:
             self._render_text_to_gl(vs, sb_x + pad + 6, cy)
             cy += vs.get_height() + 6
 
+        # ── Interactive selector with [<] and [>] buttons ──
+        def draw_selector(label, val_text, val_col=(255, 255, 255), is_level=True):
+            nonlocal cy
+            if label:
+                ls = self._font_label.render(label, True, (140, 155, 175))
+                self._render_text_to_gl(ls, sb_x + pad, cy)
+                cy += ls.get_height() + 2
+
+            btn_w = 26
+            btn_h = 24
+            gap = 4
+            content_w = sb_w - pad * 2
+            box_w = content_w - (btn_w * 2 + gap * 2)
+
+            btn_prev_rect = pygame.Rect(sb_x + pad, cy, btn_w, btn_h)
+            box_rect = pygame.Rect(sb_x + pad + btn_w + gap, cy, box_w, btn_h)
+            btn_next_rect = pygame.Rect(sb_x + pad + btn_w + gap + box_w + gap, cy, btn_w, btn_h)
+
+            if is_level:
+                self.btn_prev_level_rect = btn_prev_rect
+                self.btn_next_level_rect = btn_next_rect
+            else:
+                self.btn_prev_algo_rect = btn_prev_rect
+                self.btn_next_algo_rect = btn_next_rect
+
+            # Prev button [<]
+            prev_hover = btn_prev_rect.collidepoint(mouse_pos)
+            if prev_hover:
+                draw_rect_2d(btn_prev_rect.x, btn_prev_rect.y, btn_w, btn_h,
+                             (0.20, 0.45, 0.65, 1.0), (0.15, 0.80, 1.0, 1.0))
+                prev_text_col = (255, 255, 255)
+            else:
+                draw_rect_2d(btn_prev_rect.x, btn_prev_rect.y, btn_w, btn_h,
+                             (0.12, 0.15, 0.22, 1.0), (0.25, 0.32, 0.45, 0.9))
+                prev_text_col = (180, 205, 235)
+
+            prev_surf = self._font_value.render("<", True, prev_text_col)
+            px = btn_prev_rect.x + (btn_w - prev_surf.get_width()) // 2
+            py = cy + (btn_h - prev_surf.get_height()) // 2
+            self._render_text_to_gl(prev_surf, px, py)
+
+            # Center value box
+            draw_rect_2d(box_rect.x, box_rect.y, box_w, btn_h,
+                         (0.08, 0.10, 0.15, 1.0), (0.18, 0.24, 0.35, 0.8))
+            val_str = str(val_text)
+            val_surf = self._font_value.render(val_str, True, val_col)
+            if val_surf.get_width() > box_w - 6:
+                val_surf = self._font_label.render(val_str, True, val_col)
+            vx = box_rect.x + (box_w - val_surf.get_width()) // 2
+            vy = cy + (btn_h - val_surf.get_height()) // 2
+            self._render_text_to_gl(val_surf, vx, vy)
+
+            # Next button [>]
+            next_hover = btn_next_rect.collidepoint(mouse_pos)
+            if next_hover:
+                draw_rect_2d(btn_next_rect.x, btn_next_rect.y, btn_w, btn_h,
+                             (0.20, 0.45, 0.65, 1.0), (0.15, 0.80, 1.0, 1.0))
+                next_text_col = (255, 255, 255)
+            else:
+                draw_rect_2d(btn_next_rect.x, btn_next_rect.y, btn_w, btn_h,
+                             (0.12, 0.15, 0.22, 1.0), (0.25, 0.32, 0.45, 0.9))
+                next_text_col = (180, 205, 235)
+
+            next_surf = self._font_value.render(">", True, next_text_col)
+            nx = btn_next_rect.x + (btn_w - next_surf.get_width()) // 2
+            ny = cy + (btn_h - next_surf.get_height()) // 2
+            self._render_text_to_gl(next_surf, nx, ny)
+
+            cy += btn_h + 6
+
         draw_sep()
 
         # ── Section: Level & Algorithm ──
-        sec = self._font_small.render("LEVEL INFO", True, (14, 165, 233))
+        sec = self._font_small.render("LEVEL & ALGORITHM", True, (14, 165, 233))
         self._render_text_to_gl(sec, sb_x + pad, cy)
         cy += sec.get_height() + 4
 
-        draw_label_value("Level:", level_name)
+        # Format level display name
+        disp_lvl = level_name
+        if disp_lvl.isdigit():
+            disp_lvl = f"Level {disp_lvl}"
+        elif disp_lvl.startswith("Level ") or disp_lvl.startswith("level "):
+            disp_lvl = disp_lvl
+        else:
+            disp_lvl = f"{disp_lvl}"
+
+        draw_selector("Level:", disp_lvl, (255, 255, 255), is_level=True)
+
         if mode == 'replay':
-            draw_label_value("Algorithm:", algo_name, (14, 200, 233))
+            draw_selector("Algorithm:", algo_name, (14, 200, 233), is_level=False)
         else:
             draw_label_value("Mode:", "Manual Play", (16, 185, 129))
+            draw_selector("AI Solver:", algo_name or "A*", (14, 200, 233), is_level=False)
 
         draw_sep()
 
@@ -470,6 +589,12 @@ class Display:
             elif status == "GOAL REACHED":
                 glColor4f(0.16, 0.72, 0.45, 1.0)
                 btn_txt = "R: RESTART (R)"
+            elif status == "NO SOLUTION":
+                glColor4f(0.40, 0.15, 0.15, 1.0)
+                btn_txt = "X: NO SOLUTION"
+            elif status == "SOLVING...":
+                glColor4f(0.40, 0.25, 0.10, 1.0)
+                btn_txt = "... SOLVING ..."
             else:
                 glColor4f(0.06, 0.72, 0.50, 1.0)
                 btn_txt = "> START REPLAY (Space)"
@@ -550,28 +675,29 @@ class Display:
         if shortcut_block is None:
             if mode == 'replay':
                 shortcut_block = [
+                    ("[< / >]", "Prev / Next Level"),
+                    ("[A / Tab]", "Switch Algorithm"),
                     ("[Space]", "Play / Pause"),
                     ("[<- / ->]", "Step back / fwd"),
-                    ("[R]", "Reset to start"),
+                    ("[R]", "Reset replay"),
+                    ("[P]", "Play manually"),
                     ("[+/-]", "Change speed"),
                     ("[Left-drag]", "360° Orbit"),
                     ("[Scroll]", "Zoom In/Out"),
-                    ("[1] [2] [3] [4]", "View presets"),
-                    ("[C]", "Reset camera"),
-                    ("[H]", "Toggle sidebar"),
-                    ("[ESC]", "Exit to Menu"),
+                    ("[1-4] [C]", "Presets / Reset"),
+                    ("[H] [ESC]", "Sidebar / Menu"),
                 ]
             else:
                 shortcut_block = [
+                    ("[< / >]", "Prev / Next Level"),
+                    ("[A / Tab]", "Solve with AI"),
                     ("[Arrow Keys]", "Move block"),
                     ("[Space]", "Switch block (split)"),
                     ("[R]", "Restart level"),
                     ("[Left-drag]", "360° Orbit"),
                     ("[Scroll]", "Zoom In/Out"),
-                    ("[1] [2] [3] [4]", "View presets"),
-                    ("[C]", "Reset camera"),
-                    ("[H]", "Toggle sidebar"),
-                    ("[ESC]", "Exit to Menu"),
+                    ("[1-4] [C]", "Presets / Reset"),
+                    ("[H] [ESC]", "Sidebar / Menu"),
                 ]
 
         # Render from bottom up

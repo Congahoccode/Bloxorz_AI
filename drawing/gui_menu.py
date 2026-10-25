@@ -104,10 +104,13 @@ class GuiMenu:
         self._init_buttons()
 
     def _load_level_files(self):
+        import re
+        def natural_sort_key(s):
+            return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)]
         lvl_files = []
         lvl_dir = "./level"
         if os.path.exists(lvl_dir):
-            for f in sorted(os.listdir(lvl_dir)):
+            for f in sorted(os.listdir(lvl_dir), key=natural_sort_key):
                 if f.endswith(".json"):
                     lvl_files.append(os.path.join(lvl_dir, f))
         return lvl_files
