@@ -1,5 +1,8 @@
 """Breadth-First Search solver for the Bloxorz game."""
 
+# BFS: duyệt theo từng tầng bằng hàng đợi FIFO, nên lần đầu chạm đích
+# luôn là đường đi ít bước nhất.
+
 from collections import deque
 from copy import deepcopy
 import os
@@ -29,15 +32,19 @@ def _make_control(state_or_path):
     else:
         raise TypeError("BFS expects a level path, maps instance, or Control state")
 
+    # Tắt add_stack() của Control (dành cho DFS cũ); BFS tự quản lý trạng thái.
     control.Play_handle = True
     return control
 
 
 def _location_key(location):
+    # List không hash được, đổi sang tuple để làm khóa dict.
     return tuple(tuple(cell) for cell in location)
 
 
 def _state_key(control):
+    # Chữ ký duy nhất của trạng thái. Phải gồm cả gạch, cầu, công tắc,
+    # nếu không hai trạng thái khác nhau có thể bị coi là một.
     game_map = control.maps
     current = control.current
     if game_map.is_split and len(game_map.split_boxes) == 2:
@@ -75,6 +82,8 @@ def _state_key(control):
 
 
 def _step(control, action):
+    # Đi một nước trên bản sao (không sửa trạng thái cha).
+    # Trả về None nếu nước đi không hợp lệ.
     next_control = deepcopy(control)
     next_control.Play_handle = True
     if action == "SW":
@@ -88,6 +97,7 @@ def _step(control, action):
 
 
 def _build_actions(parents, key):
+    # Truy ngược từ đích về đầu rồi đảo lại.
     actions = []
     while parents[key] is not None:
         key, action = parents[key]
@@ -101,12 +111,15 @@ def bfs(state_or_path):
     expanded states, or (None, expanded) if the level has no solution."""
     start = _make_control(state_or_path)
     start_key = _state_key(start)
+
+    # Vừa là tập đã thăm, vừa lưu (trạng thái cha, hành động) để truy vết.
     parents = {start_key: None}
     expanded = 0
 
     if start.check_goal():
         return [], expanded
 
+    # FIFO: popleft() lấy cũ nhất (DFS dùng stack nên khác ở điểm này).
     frontier = deque([(start_key, start)])
 
     while frontier:
@@ -115,7 +128,7 @@ def bfs(state_or_path):
 
         actions = [move[0] for move in MOVES]
         if state.maps.is_split:
-            actions.append("SW")
+            actions.append("SW")  # đổi khối, chỉ khi đang tách đôi
 
         for action in actions:
             next_state = _step(state, action)
@@ -132,6 +145,7 @@ def bfs(state_or_path):
 
             frontier.append((next_key, next_state))
 
+    # Duyệt hết mà không thấy đích: level không có lời giải.
     return None, expanded
 
 
@@ -146,6 +160,7 @@ def run_bfs(level_path):
     finally:
         tracemalloc.stop()
 
+    # Phát lại các bước để lấy vị trí khối qua từng nước đi.
     path = None
     if actions is not None:
         control = _make_control(level_path)
@@ -156,6 +171,7 @@ def run_bfs(level_path):
                 raise RuntimeError(f"BFS returned an invalid action: {action}")
             path.append(deepcopy(control.current))
 
+    # Cùng định dạng với run_dfs.
     return {
         "solved": actions is not None,
         "time_s": elapsed,
