@@ -1,135 +1,195 @@
-"""Breadth-First Search (BFS) solver for the Bloxorz game."""
+"""Breadth-First Search solver for the Bloxorz game."""
+
+# BFS: duyệt theo từng tầng bằng hàng đợi FIFO, nên lần đầu chạm đích
+# luôn là đường đi ít bước nhất.
 
 from collections import deque
+from copy import deepcopy
 import os
 import time
 import tracemalloc
 
-try:
-    from solver.ucs import Level, UNIFORM
-except ImportError:
-    from ucs import Level, UNIFORM
+from model.control import Control
+from model.map import maps
 
 
-def _reconstruct_path(parent, goal_state):
-    """Truy vết lại danh sách actions và path từ goal_state về start qua parent dict."""
+MOVES = (
+    ("U", "move_up"),
+    ("D", "move_down"),
+    ("R", "move_right"),
+    ("L", "move_left"),
+)
+MOVE_METHODS = dict(MOVES)
+
+
+def _make_control(state_or_path):
+    if isinstance(state_or_path, Control):
+        control = deepcopy(state_or_path)
+    elif isinstance(state_or_path, maps):
+        control = Control(deepcopy(state_or_path))
+    elif isinstance(state_or_path, (str, os.PathLike)):
+        control = Control(maps(os.fspath(state_or_path)))
+    else:
+        raise TypeError("BFS expects a level path, maps instance, or Control state")
+
+    # Tắt add_stack() của Control (dành cho DFS cũ); BFS tự quản lý trạng thái.
+    control.Play_handle = True
+    return control
+
+
+def _location_key(location):
+    # List không hash được, đổi sang tuple để làm khóa dict.
+    return tuple(tuple(cell) for cell in location)
+
+
+def _state_key(control):
+    # Chữ ký duy nhất của trạng thái. Phải gồm cả gạch, cầu, công tắc,
+    # nếu không hai trạng thái khác nhau có thể bị coi là một.
+    game_map = control.maps
+    current = control.current
+    if game_map.is_split and len(game_map.split_boxes) == 2:
+        block_state = (
+            _location_key(game_map.split_boxes[0].location),
+            _location_key(game_map.split_boxes[1].location),
+            game_map.active_box_index,
+        )
+    else:
+        block_state = _location_key(current)
+
+    tile_state = tuple(
+        tuple(tile.type for tile in row)
+        for row in game_map.maps
+    )
+    bridge_state = tuple(
+        (
+            bridge.symbol,
+            bridge.active,
+            bridge.is_permanent,
+        )
+        for bridge in game_map.Brid
+    )
+    switch_state = tuple(
+        (switch.symbol, switch.active)
+        for switch in (*game_map.swQ, *game_map.swX, *game_map.swO)
+    )
+    return (
+        block_state,
+        game_map.is_split,
+        tile_state,
+        bridge_state,
+        switch_state,
+    )
+
+
+def _step(control, action):
+    # Đi một nước trên bản sao (không sửa trạng thái cha).
+    # Trả về None nếu nước đi không hợp lệ.
+    next_control = deepcopy(control)
+    next_control.Play_handle = True
+    if action == "SW":
+        if not next_control.switch_box():
+            return None
+    else:
+        method_name = MOVE_METHODS.get(action)
+        if method_name is None or not getattr(next_control, method_name)():
+            return None
+    return next_control
+
+
+def _build_actions(parents, key):
+    # Truy ngược từ đích về đầu rồi đảo lại.
     actions = []
-    states = []
-    curr = goal_state
-    while curr is not None:
-        states.append(curr)
-        if parent[curr] is None:
-            curr = None
-        else:
-            p_s, act = parent[curr]
-            actions.append(act)
-            curr = p_s
+    while parents[key] is not None:
+        key, action = parents[key]
+        actions.append(action)
     actions.reverse()
-    states.reverse()
-
-    path = []
-    for s in states:
-        cells = s[0]
-        if len(cells) == 3:
-            loc1 = [[cells[0][0][0], cells[0][0][1]]]
-            loc2 = [[cells[1][0][0], cells[1][0][1]]]
-            path.append((loc1, loc2, cells[2]))
-        else:
-            path.append([[c[0], c[1]] for c in cells])
-
-    return actions, path
-
-
-def _bfs(state_or_path):
-    """
-    Thuật toán Breadth-First Search (BFS) tối ưu cao độ:
-    - Sử dụng mô hình Level nhẹ, không deepcopy đối tượng Control/pygame.
-    - Kiểm tra đích ngay khi sinh trạng thái (Goal test on generation) đảm bảo tính tối ưu.
-    - Hỗ trợ đầy đủ khối đôi, khối tách (swO), công tắc mềm/nặng và cầu.
-    """
-    level = Level(state_or_path)
-    start = level.start
-    if level.is_goal(start):
-        cells = start[0]
-        p = [[[c[0], c[1]] for c in cells]]
-        return [], p, 0
-
-    queue = deque([start])
-    parent = {start: None}
-    expanded = 0
-
-    while queue:
-        state = queue.popleft()
-        expanded += 1
-
-        for action, next_state, _ in level.get_next_states(state, UNIFORM):
-            if next_state not in parent:
-                parent[next_state] = (state, action)
-                if level.is_goal(next_state):
-                    actions, path = _reconstruct_path(parent, next_state)
-                    return actions, path, expanded
-                queue.append(next_state)
-
-    return None, None, expanded
+    return actions
 
 
 def bfs(state_or_path):
-    """Return a shortest action sequence (fewest moves) and the number of expanded states."""
-    actions, _, expanded = _bfs(state_or_path)
-    return actions, expanded
+    """Return a shortest action sequence (fewest moves) and the number of
+    expanded states, or (None, expanded) if the level has no solution."""
+    start = _make_control(state_or_path)
+    start_key = _state_key(start)
 
+    # Vừa là tập đã thăm, vừa lưu (trạng thái cha, hành động) để truy vết.
+    parents = {start_key: None}
+    expanded = 0
 
-class SolveResult(tuple):
-    """Tuỳ biến tuple trả về để vừa tương thích (path, expanded) vừa chứa actions và cost."""
-    def __new__(cls, path, expanded, actions=None, cost=None):
-        return super().__new__(cls, (path, expanded))
+    if start.check_goal():
+        return [], expanded
 
-    def __init__(self, path, expanded, actions=None, cost=None):
-        self.path = path
-        self.expanded = expanded
-        self.actions = actions
-        self.cost = cost
+    # FIFO: popleft() lấy cũ nhất (DFS dùng stack nên khác ở điểm này).
+    frontier = deque([(start_key, start)])
 
+    while frontier:
+        key, state = frontier.popleft()
+        expanded += 1
 
-def solve(state_or_path):
-    """
-    Entry point used by run.py and GUI Launcher.
-    Trả về: SolveResult(path, expanded, actions, cost) hoặc (None, 0)
-    """
-    try:
-        actions, path, expanded = _bfs(state_or_path)
-        if actions is None:
-            return None, 0
-        return SolveResult(path, expanded, actions=actions, cost=len(actions))
-    except Exception as e:
-        print(f"Lỗi khi thực thi thuật toán BFS: {e}")
-        return None, 0
+        actions = [move[0] for move in MOVES]
+        if state.maps.is_split:
+            actions.append("SW")  # đổi khối, chỉ khi đang tách đôi
 
+        for action in actions:
+            next_state = _step(state, action)
+            if next_state is None:
+                continue
+            next_key = _state_key(next_state)
+            if next_key in parents:
+                continue
+            parents[next_key] = (key, action)
 
-bfs_path = solve
-bfs_search = solve
-search = solve
+            # Goal test on generation: the first goal found by BFS is optimal.
+            if next_state.check_goal():
+                return _build_actions(parents, next_key), expanded
+
+            frontier.append((next_key, next_state))
+
+    # Duyệt hết mà không thấy đích: level không có lời giải.
+    return None, expanded
 
 
 def run_bfs(level_path):
     """Run BFS and return solution and performance metrics."""
     tracemalloc.start()
-    t0 = time.perf_counter()
-    actions, path, expanded = _bfs(level_path)
-    elapsed = time.perf_counter() - t0
-    peak_memory = tracemalloc.get_traced_memory()[1]
-    tracemalloc.stop()
+    try:
+        start_time = time.perf_counter()
+        actions, expanded = bfs(level_path)
+        elapsed = time.perf_counter() - start_time
+        peak_memory = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
 
+    # Phát lại các bước để lấy vị trí khối qua từng nước đi.
+    path = None
+    if actions is not None:
+        control = _make_control(level_path)
+        path = [deepcopy(control.current)]
+        for action in actions:
+            control = _step(control, action)
+            if control is None:
+                raise RuntimeError(f"BFS returned an invalid action: {action}")
+            path.append(deepcopy(control.current))
+
+    # Cùng định dạng với run_dfs.
     return {
         "solved": actions is not None,
         "time_s": elapsed,
-        "peak_mem_kb": peak_memory / 1024.0,
+        "peak_mem_kb": peak_memory / 1024,
         "expanded": expanded,
         "length": len(actions) if actions is not None else None,
-        "cost": len(actions) if actions is not None else None,
+        "cost": None,
         "actions": actions,
         "path": path,
     }
+
+
+def solve(state_or_path):
+    """Entry point used by the application solver runner."""
+    return bfs(state_or_path)
+
+
+bfs_path = solve
 
 
 if __name__ == "__main__":
@@ -150,3 +210,4 @@ if __name__ == "__main__":
         )
     )
     print("Moves:", " ".join(result["actions"]) if result["actions"] else None)
+
