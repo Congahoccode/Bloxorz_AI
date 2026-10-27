@@ -304,35 +304,33 @@ class TestAdvancedTiles(unittest.TestCase):
         # Move to swO and split
         self.assertTrue(ctrl.move_right())
         self.assertTrue(ctrl.move_right())
+        self.assertTrue(ctrl.move_right())
         self.assertTrue(m.is_split)
 
-        # Box 1 opens bridge c2
-        self.assertTrue(ctrl.move_right())
-        self.assertTrue(m.Brid[1].active)
-
-        # Switch to Box 2, opens bridge c1, advances to [5, 5]
+        # Box 2 moves across bridge c1 and advances to [4, 7]
         self.assertTrue(ctrl.switch_box())
         self.assertTrue(ctrl.move_right())
         self.assertTrue(m.Brid[0].active)
         self.assertTrue(ctrl.move_right())
         self.assertTrue(ctrl.move_right())
         self.assertTrue(ctrl.move_right())
+        self.assertTrue(ctrl.move_up())
+        self.assertTrue(ctrl.move_right())
+        self.assertTrue(ctrl.move_right())
 
-        # Switch to Box 1, advances to [3, 5]
+        # Switch to Box 1, advances to [4, 5] and merges horizontally into [4, 6], [4, 7]
         self.assertTrue(ctrl.switch_box())
         self.assertTrue(ctrl.move_right())
+        self.assertTrue(m.Brid[1].active)
         self.assertTrue(ctrl.move_right())
         self.assertTrue(ctrl.move_right())
-
-        # Box 1 moves down to [4, 5] -> merges with Box 2!
         self.assertTrue(ctrl.move_down())
+        self.assertTrue(ctrl.move_right())
         self.assertFalse(m.is_split)
         self.assertTrue(m.current_box.is_doubleBox())
 
         # Merged moves:
-        self.assertTrue(ctrl.move_up())
-        self.assertTrue(ctrl.move_right())
-        self.assertTrue(ctrl.move_right()) # Stands on swX
+        self.assertTrue(ctrl.move_right()) # Stands on swX [4, 8]
         self.assertTrue(m.Brid[2].active)  # Bridge c3 opened permanently
 
         self.assertTrue(ctrl.move_right()) # Lies across fragile tile [4, 9] + bridge c3 [4, 10]

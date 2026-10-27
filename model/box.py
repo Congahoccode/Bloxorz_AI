@@ -33,9 +33,10 @@ class Box:
                     self.change_location(newLocation)
                 # Nam Doc
                 elif self.is_vertical():
-                    yi, xi = self.location[1]
-                    newYi = int(yi-1)
-                    newLocation = [[newYi, xi]]
+                    y1, x1 = self.location[0]
+                    y2, x2 = self.location[1]
+                    min_y = min(y1, y2)
+                    newLocation = [[min_y - 1, x1]]
                     self.change_location(newLocation)
         elif self.state == 1:
             if numGPS == 1:
@@ -56,9 +57,10 @@ class Box:
             else:
                 # Nam ngang
                 if self.is_horizontal():
-                    yi, xi = self.location[1]
-                    newXi = int(xi+1)
-                    newLocation = [[yi, newXi]]
+                    y1, x1 = self.location[0]
+                    y2, x2 = self.location[1]
+                    max_x = max(x1, x2)
+                    newLocation = [[y1, max_x + 1]]
                     self.change_location(newLocation)
                 # Nam Doc
                 elif self.is_vertical():
@@ -86,9 +88,10 @@ class Box:
             else:
                 # Nam ngang
                 if self.is_horizontal():
-                    yi, xi = self.location[0]
-                    newXi = int(xi-1)
-                    newLocation = [[yi, newXi]]
+                    y1, x1 = self.location[0]
+                    y2, x2 = self.location[1]
+                    min_x = min(x1, x2)
+                    newLocation = [[y1, min_x - 1]]
                     self.change_location(newLocation)
                 # Nam Doc
                 elif self.is_vertical():
@@ -123,9 +126,10 @@ class Box:
                     self.change_location(newLocation)
                 # Nam Doc
                 elif self.is_vertical():
-                    yi, xi = self.location[0]
-                    newYi = int(yi+1)
-                    newLocation = [[newYi, xi]]
+                    y1, x1 = self.location[0]
+                    y2, x2 = self.location[1]
+                    max_y = max(y1, y2)
+                    newLocation = [[max_y + 1, x1]]
                     self.change_location(newLocation)
         elif self.state == 1:
             if numGPS == 1:

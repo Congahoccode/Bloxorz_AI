@@ -49,6 +49,14 @@ class Display:
         # Sidebar state
         self.sidebar_visible = True
 
+        # Interactive UI button rects (updated during draw_sidebar)
+        self.btn_prev_level_rect = pygame.Rect(0, 0, 0, 0)
+        self.btn_next_level_rect = pygame.Rect(0, 0, 0, 0)
+        self.btn_prev_algo_rect = pygame.Rect(0, 0, 0, 0)
+        self.btn_next_algo_rect = pygame.Rect(0, 0, 0, 0)
+        self.replay_btn_rect = pygame.Rect(0, 0, 0, 0)
+        self.speed_bar_rect = pygame.Rect(0, 0, 0, 0)
+
         # HUD fonts (lazy init)
         self._fonts_initialized = False
         self._font_title = None
@@ -353,6 +361,12 @@ class Display:
         elif status == "GAME OVER":
             badge_col = (220, 60, 60)
             badge_text = "GAME OVER"
+        elif status == "NO SOLUTION":
+            badge_col = (239, 68, 68)
+            badge_text = "NO SOLUTION"
+        elif status == "SOLVING...":
+            badge_col = (249, 115, 22)
+            badge_text = "SOLVING..."
         elif status == "PLAYING":
             badge_col = (14, 165, 233)
             badge_text = "PLAYING"
@@ -379,6 +393,31 @@ class Display:
         self._render_text_to_gl(badge_surf, sb_x + pad + 2, cy + 2)
         cy += bh + 14
 
+        # ── Mouse position for hover detection ──
+        mouse_pos = pygame.mouse.get_pos()
+
+        # ── 2D Rect helper ──
+        def draw_rect_2d(rx, ry, rw, rh, bg_col, border_col=None):
+            glDisable(GL_TEXTURE_2D)
+            gl_y = sh - ry - rh
+            glColor4f(*bg_col)
+            glBegin(GL_QUADS)
+            glVertex2f(rx, gl_y)
+            glVertex2f(rx + rw, gl_y)
+            glVertex2f(rx + rw, gl_y + rh)
+            glVertex2f(rx, gl_y + rh)
+            glEnd()
+            if border_col:
+                glColor4f(*border_col)
+                glLineWidth(1.2)
+                glBegin(GL_LINE_LOOP)
+                glVertex2f(rx, gl_y)
+                glVertex2f(rx + rw, gl_y)
+                glVertex2f(rx + rw, gl_y + rh)
+                glVertex2f(rx, gl_y + rh)
+                glEnd()
+            glEnable(GL_TEXTURE_2D)
+
         # ── Separator helper ──
         def draw_sep():
             nonlocal cy
@@ -403,18 +442,99 @@ class Display:
             self._render_text_to_gl(vs, sb_x + pad + 6, cy)
             cy += vs.get_height() + 6
 
+        # ── Interactive selector with [<] and [>] buttons ──
+        def draw_selector(label, val_text, val_col=(255, 255, 255), is_level=True):
+            nonlocal cy
+            if label:
+                ls = self._font_label.render(label, True, (140, 155, 175))
+                self._render_text_to_gl(ls, sb_x + pad, cy)
+                cy += ls.get_height() + 2
+
+            btn_w = 26
+            btn_h = 24
+            gap = 4
+            content_w = sb_w - pad * 2
+            box_w = content_w - (btn_w * 2 + gap * 2)
+
+            btn_prev_rect = pygame.Rect(sb_x + pad, cy, btn_w, btn_h)
+            box_rect = pygame.Rect(sb_x + pad + btn_w + gap, cy, box_w, btn_h)
+            btn_next_rect = pygame.Rect(sb_x + pad + btn_w + gap + box_w + gap, cy, btn_w, btn_h)
+
+            if is_level:
+                self.btn_prev_level_rect = btn_prev_rect
+                self.btn_next_level_rect = btn_next_rect
+            else:
+                self.btn_prev_algo_rect = btn_prev_rect
+                self.btn_next_algo_rect = btn_next_rect
+
+            # Prev button [<]
+            prev_hover = btn_prev_rect.collidepoint(mouse_pos)
+            if prev_hover:
+                draw_rect_2d(btn_prev_rect.x, btn_prev_rect.y, btn_w, btn_h,
+                             (0.20, 0.45, 0.65, 1.0), (0.15, 0.80, 1.0, 1.0))
+                prev_text_col = (255, 255, 255)
+            else:
+                draw_rect_2d(btn_prev_rect.x, btn_prev_rect.y, btn_w, btn_h,
+                             (0.12, 0.15, 0.22, 1.0), (0.25, 0.32, 0.45, 0.9))
+                prev_text_col = (180, 205, 235)
+
+            prev_surf = self._font_value.render("<", True, prev_text_col)
+            px = btn_prev_rect.x + (btn_w - prev_surf.get_width()) // 2
+            py = cy + (btn_h - prev_surf.get_height()) // 2
+            self._render_text_to_gl(prev_surf, px, py)
+
+            # Center value box
+            draw_rect_2d(box_rect.x, box_rect.y, box_w, btn_h,
+                         (0.08, 0.10, 0.15, 1.0), (0.18, 0.24, 0.35, 0.8))
+            val_str = str(val_text)
+            val_surf = self._font_value.render(val_str, True, val_col)
+            if val_surf.get_width() > box_w - 6:
+                val_surf = self._font_label.render(val_str, True, val_col)
+            vx = box_rect.x + (box_w - val_surf.get_width()) // 2
+            vy = cy + (btn_h - val_surf.get_height()) // 2
+            self._render_text_to_gl(val_surf, vx, vy)
+
+            # Next button [>]
+            next_hover = btn_next_rect.collidepoint(mouse_pos)
+            if next_hover:
+                draw_rect_2d(btn_next_rect.x, btn_next_rect.y, btn_w, btn_h,
+                             (0.20, 0.45, 0.65, 1.0), (0.15, 0.80, 1.0, 1.0))
+                next_text_col = (255, 255, 255)
+            else:
+                draw_rect_2d(btn_next_rect.x, btn_next_rect.y, btn_w, btn_h,
+                             (0.12, 0.15, 0.22, 1.0), (0.25, 0.32, 0.45, 0.9))
+                next_text_col = (180, 205, 235)
+
+            next_surf = self._font_value.render(">", True, next_text_col)
+            nx = btn_next_rect.x + (btn_w - next_surf.get_width()) // 2
+            ny = cy + (btn_h - next_surf.get_height()) // 2
+            self._render_text_to_gl(next_surf, nx, ny)
+
+            cy += btn_h + 6
+
         draw_sep()
 
         # ── Section: Level & Algorithm ──
-        sec = self._font_small.render("LEVEL INFO", True, (14, 165, 233))
+        sec = self._font_small.render("LEVEL & ALGORITHM", True, (14, 165, 233))
         self._render_text_to_gl(sec, sb_x + pad, cy)
         cy += sec.get_height() + 4
 
-        draw_label_value("Level:", level_name)
+        # Format level display name
+        disp_lvl = level_name
+        if disp_lvl.isdigit():
+            disp_lvl = f"Level {disp_lvl}"
+        elif disp_lvl.startswith("Level ") or disp_lvl.startswith("level "):
+            disp_lvl = disp_lvl
+        else:
+            disp_lvl = f"{disp_lvl}"
+
+        draw_selector("Level:", disp_lvl, (255, 255, 255), is_level=True)
+
         if mode == 'replay':
-            draw_label_value("Algorithm:", algo_name, (14, 200, 233))
+            draw_selector("Algorithm:", algo_name, (14, 200, 233), is_level=False)
         else:
             draw_label_value("Mode:", "Manual Play", (16, 185, 129))
+            draw_selector("AI Solver:", algo_name or "A*", (14, 200, 233), is_level=False)
 
         draw_sep()
 
@@ -455,7 +575,62 @@ class Display:
 
             step_str = f"Step: {current_step} / {total_steps - 1}"
             draw_label_value("", step_str, (255, 255, 255))
-            draw_label_value("Speed:", speed_label, (249, 115, 22))
+
+            # ── Speed row: "Speed:" + interactive bar + "1.0x" on same horizontal line ──
+            lbl_speed = self._font_label.render("Speed:", True, (140, 155, 175))
+            val_speed = self._font_value.render(str(speed_label), True, (249, 115, 22))
+
+            speed_line_h = max(lbl_speed.get_height(), val_speed.get_height(), 16)
+            self._render_text_to_gl(lbl_speed, sb_x + pad, cy + (speed_line_h - lbl_speed.get_height()) // 2)
+
+            val_x = sw - pad - val_speed.get_width()
+            self._render_text_to_gl(val_speed, val_x, cy + (speed_line_h - val_speed.get_height()) // 2)
+
+            bar_x = sb_x + pad + lbl_speed.get_width() + 8
+            bar_w = val_x - 8 - bar_x
+            bar_h = 14
+            bar_y = cy + (speed_line_h - bar_h) // 2
+            self.speed_bar_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+
+            # Determine speed index and count
+            speed_labels_default = ['0.4x', '0.7x', '1.0x', '1.7x', '3.3x', '6.5x']
+            s_count = info.get('speed_count', len(speed_labels_default))
+            if 'speed_idx' in info:
+                s_idx = info['speed_idx']
+            else:
+                s_idx = speed_labels_default.index(speed_label) if speed_label in speed_labels_default else 2
+            s_idx = max(0, min(s_count - 1, s_idx))
+
+            # Draw track background
+            is_hover = self.speed_bar_rect.collidepoint(mouse_pos)
+            track_border = (0.15, 0.80, 1.0, 1.0) if is_hover else (0.22, 0.28, 0.40, 0.9)
+            draw_rect_2d(bar_x, bar_y, bar_w, bar_h, (0.10, 0.12, 0.18, 1.0), track_border)
+
+            # Draw filled portion of speed bar
+            fill_ratio = (s_idx + 1) / max(1, s_count)
+            fill_w = max(4, int(bar_w * fill_ratio))
+            draw_rect_2d(bar_x + 1, bar_y + 1, fill_w - 2, bar_h - 2, (0.98, 0.45, 0.08, 0.85))
+
+            # Draw segment dividers
+            for seg in range(1, s_count):
+                seg_x = bar_x + int(bar_w * (seg / s_count))
+                glDisable(GL_TEXTURE_2D)
+                gl_sy = sh - bar_y - bar_h
+                glColor4f(0.3, 0.35, 0.45, 0.5)
+                glLineWidth(1.0)
+                glBegin(GL_LINES)
+                glVertex2f(seg_x, gl_sy + 2)
+                glVertex2f(seg_x, gl_sy + bar_h - 2)
+                glEnd()
+                glEnable(GL_TEXTURE_2D)
+
+            # Draw active handle/thumb knob
+            knob_x = bar_x + int(bar_w * ((s_idx + 0.5) / s_count)) - 3
+            knob_w = 6
+            knob_h = bar_h + 2
+            draw_rect_2d(knob_x, bar_y - 1, knob_w, knob_h, (1.0, 1.0, 1.0, 1.0), (0.20, 0.80, 1.0, 1.0))
+
+            cy += speed_line_h + 10
 
             # ── Interactive Start / Pause Button ──
             btn_play_w = sb_w - pad * 2
@@ -470,6 +645,12 @@ class Display:
             elif status == "GOAL REACHED":
                 glColor4f(0.16, 0.72, 0.45, 1.0)
                 btn_txt = "R: RESTART (R)"
+            elif status == "NO SOLUTION":
+                glColor4f(0.40, 0.15, 0.15, 1.0)
+                btn_txt = "X: NO SOLUTION"
+            elif status == "SOLVING...":
+                glColor4f(0.40, 0.25, 0.10, 1.0)
+                btn_txt = "... SOLVING ..."
             else:
                 glColor4f(0.06, 0.72, 0.50, 1.0)
                 btn_txt = "> START REPLAY (Space)"
@@ -531,19 +712,40 @@ class Display:
 
             draw_sep()
 
-        # ── Section: Metrics (if available) ──
+        # ── Section: Metrics (2 columns: Search Time & Peak RAM) ──
         if metrics:
             draw_sep()
             sec4 = self._font_small.render("METRICS", True, (14, 165, 233))
             self._render_text_to_gl(sec4, sb_x + pad, cy)
             cy += sec4.get_height() + 4
 
-            if 'time_sec' in metrics:
-                draw_label_value("Search time:", f"{metrics['time_sec']:.4f} s", (6, 182, 212))
-            if 'peak_mem_kb' in metrics:
-                draw_label_value("Peak RAM:", f"{metrics['peak_mem_kb']:.1f} KB", (249, 115, 22))
-            if 'visited' in metrics:
-                draw_label_value("Explored states:", f"{metrics['visited']:,}", (180, 180, 200))
+            col_gap = 8
+            col_w = (sb_w - pad * 2 - col_gap) // 2
+            col1_x = sb_x + pad
+            col2_x = col1_x + col_w + col_gap
+            card_h = 42
+
+            # Column 1: Search Time
+            time_sec = metrics.get('time_sec', 0.0)
+            time_str = f"{time_sec:.4f} s" if time_sec >= 0.0001 else (f"{time_sec * 1000:.2f} ms" if time_sec > 0 else "0.0000 s")
+
+            draw_rect_2d(col1_x, cy, col_w, card_h, (0.08, 0.10, 0.15, 1.0), (0.18, 0.24, 0.35, 0.8))
+            lbl1 = self._font_small.render("Search Time", True, (140, 155, 175))
+            self._render_text_to_gl(lbl1, col1_x + 8, cy + 4)
+            val1 = self._font_value.render(time_str, True, (6, 182, 212))
+            self._render_text_to_gl(val1, col1_x + 8, cy + 20)
+
+            # Column 2: Peak RAM
+            mem_kb = metrics.get('peak_mem_kb', 0.0)
+            mem_str = f"{mem_kb / 1024.0:.2f} MB" if mem_kb >= 1024.0 else f"{mem_kb:.1f} KB"
+
+            draw_rect_2d(col2_x, cy, col_w, card_h, (0.08, 0.10, 0.15, 1.0), (0.18, 0.24, 0.35, 0.8))
+            lbl2 = self._font_small.render("Peak RAM", True, (140, 155, 175))
+            self._render_text_to_gl(lbl2, col2_x + 8, cy + 4)
+            val2 = self._font_value.render(mem_str, True, (249, 115, 22))
+            self._render_text_to_gl(val2, col2_x + 8, cy + 20)
+
+            cy += card_h + 8
 
         # ── Section: Keyboard Shortcuts (bottom) ──
         shortcut_block = info.get('shortcuts', None)
@@ -551,33 +753,24 @@ class Display:
             if mode == 'replay':
                 shortcut_block = [
                     ("[Space]", "Play / Pause"),
-                    ("[<- / ->]", "Step back / fwd"),
-                    ("[R]", "Reset to start"),
+                    ("[Tab]", "Switch Algorithm"),
+                    ("[R]", "Reset replay"),
                     ("[+/-]", "Change speed"),
-                    ("[Left-drag]", "360° Orbit"),
-                    ("[Scroll]", "Zoom In/Out"),
-                    ("[1] [2] [3] [4]", "View presets"),
-                    ("[C]", "Reset camera"),
-                    ("[H]", "Toggle sidebar"),
-                    ("[ESC]", "Exit to Menu"),
+                    ("[ESC]", "Exit / Menu"),
                 ]
             else:
                 shortcut_block = [
                     ("[Arrow Keys]", "Move block"),
                     ("[Space]", "Switch block (split)"),
+                    ("[Tab]", "Solve with AI"),
                     ("[R]", "Restart level"),
-                    ("[Left-drag]", "360° Orbit"),
-                    ("[Scroll]", "Zoom In/Out"),
-                    ("[1] [2] [3] [4]", "View presets"),
-                    ("[C]", "Reset camera"),
-                    ("[H]", "Toggle sidebar"),
-                    ("[ESC]", "Exit to Menu"),
+                    ("[ESC]", "Exit / Menu"),
                 ]
 
         # Render from bottom up
         sc_y = sh - 14
         for key, desc in reversed(shortcut_block):
-            sc_y -= 15
+            sc_y -= 16
             ks = self._font_key.render(key, True, (180, 200, 230))
             ds = self._font_small.render(f" {desc}", True, (110, 120, 140))
             self._render_text_to_gl(ks, sb_x + pad, sc_y)

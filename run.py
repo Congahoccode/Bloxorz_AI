@@ -14,6 +14,7 @@ from drawing.display import Display
 from drawing.gui_menu import GuiMenu
 from model.map import maps
 from model.control import Control
+from model.box import Box
 import timeit
 
 
@@ -104,25 +105,46 @@ def performance(solution, level, algorithm):
         return
 
 
-def build_snapshots(level_path, solution):
+def build_snapshots(level_path, solution, actions=None):
     """Precompute physical state snapshots for each step in solution to allow instant bidirectional replay."""
     m = maps(level_path)
     ctrl = Control(m)
     ctrl.Play_handle = True
 
-    snapshots = []
-    for step in solution:
-        ctrl.current = deepcopy(step)
-        ctrl.update_box_locaton_for_maps(deepcopy(step))
-        ctrl.maps.refreshBox()
-        ctrl.update_current_location()
-        snapshots.append({
+    def snapshot():
+        return {
             'current': deepcopy(ctrl.current),
             'maps': deepcopy(ctrl.maps.maps),
             'is_split': ctrl.maps.is_split,
             'split_boxes': deepcopy(ctrl.maps.split_boxes),
             'active_box_index': ctrl.maps.active_box_index
-        })
+        }
+
+    if actions is not None:
+        snapshots = [snapshot()]
+        move_map = {
+            'U': ctrl.move_up,
+            'D': ctrl.move_down,
+            'R': ctrl.move_right,
+            'L': ctrl.move_left,
+        }
+        for action in actions:
+            if action == 'SW':
+                moved = ctrl.switch_box()
+            else:
+                move = move_map.get(action)
+                moved = move() if move else False
+            if not moved:
+                raise ValueError(f"Cannot replay invalid solver action: {action}")
+            snapshots.append(snapshot())
+        return snapshots
+
+    snapshots = []
+    for step in solution:
+        ctrl.set_state(step, ctrl.curr_maps)
+        ctrl.maps.refreshBox()
+        ctrl.update_current_location()
+        snapshots.append(snapshot())
     return snapshots
 
 
@@ -137,37 +159,90 @@ def apply_snapshot(ctrl, snap):
     if snap['is_split'] and len(snap['split_boxes']) == 2:
         ctrl.maps.current_box = ctrl.maps.split_boxes[snap['active_box_index']]
     else:
-        ctrl.maps.current_box.location = deepcopy(ctrl.current)
-        ctrl.maps.current_box.pre_location = deepcopy(ctrl.current)
+        merged_box = Box("#", 2, deepcopy(ctrl.current))
+        merged_box.on()
+        ctrl.maps.current_box = merged_box
 
 
-def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), algo_name="Solver", metrics=None):
-    """Interactive 3D Replay with sidebar info panel, Play/Pause, Step forward/back, Reset, Speed adjustment."""
-    if solution is None or len(solution) == 0:
-        print("No solution to display!")
-        return
+def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), algo_name="Solver", metrics=None, algorithm_enum=None):
+    """Interactive 3D Replay with interactive [<] and [>] buttons for Level and Algorithm,
+    sidebar info panel, Play/Pause, Step forward/back, Reset, Speed adjustment, and Manual Play transition.
+    """
+    algo_list = [Algorithm.BFS, Algorithm.DFS, Algorithm.UCS, Algorithm.ASTAR]
 
-    moves = solution_to_moves(solution)
-    snapshots = build_snapshots(level, solution)
-    total_steps = len(snapshots)
+    if algorithm_enum in algo_list:
+        current_algo = algorithm_enum
+    else:
+        # Match from algo_name or metrics
+        a_str = str((metrics or {}).get('algorithm') or algo_name).lower().replace(" ", "").replace("*", "star")
+        if 'astar' in a_str or 'a_star' in a_str:
+            current_algo = Algorithm.ASTAR
+        elif 'dfs' in a_str:
+            current_algo = Algorithm.DFS
+        elif 'ucs' in a_str:
+            current_algo = Algorithm.UCS
+        else:
+            current_algo = Algorithm.BFS
+    current_algo_idx = algo_list.index(current_algo)
+
+    available_levels = get_available_levels()
+    if not available_levels:
+        available_levels = [level]
+
+    current_level = level
+    cur_lvl_abs = os.path.abspath(level) if os.path.exists(level) else level
+    current_level_idx = 0
+    for idx, lp in enumerate(available_levels):
+        if os.path.abspath(lp) == cur_lvl_abs or os.path.basename(lp) == os.path.basename(level):
+            current_level_idx = idx
+            current_level = lp
+            break
+
+    lvl_name = os.path.basename(current_level).replace(".json", "")
+    algo_name = ALGO_CONFIGS[current_algo]['name']
 
     pygame.init()
     display = Display(title=f'Bloxorz 3D Replay', map_size=map_size)
     clock = pygame.time.Clock()
 
-    ctrl = Control(maps(level))
+    ctrl = Control(maps(current_level))
     ctrl.Play_handle = True
 
-    # Speeds list (seconds per step) and labels - calibrated 1.7x slower
+    # Precompute snapshots or fallback
+    if solution is not None and len(solution) > 0:
+        moves = (metrics or {}).get('actions') or solution_to_moves(solution)
+        try:
+            snapshots = build_snapshots(current_level, solution, (metrics or {}).get('actions'))
+            total_steps = len(snapshots)
+        except Exception:
+            snapshots = []
+            total_steps = 1
+        status = "READY"
+    else:
+        moves = []
+        snapshots = []
+        total_steps = 1
+        status = "NO SOLUTION"
+
+    if not snapshots:
+        snapshots = [{
+            'current': deepcopy(ctrl.current),
+            'maps': deepcopy(ctrl.maps.maps),
+            'is_split': ctrl.maps.is_split,
+            'split_boxes': deepcopy(ctrl.maps.split_boxes),
+            'active_box_index': ctrl.maps.active_box_index
+        }]
+        total_steps = 1
+
+    # Speeds list (seconds per step) and labels
     speeds = [1.35, 0.85, 0.60, 0.35, 0.18, 0.09]
     speed_labels = ['0.4x', '0.7x', '1.0x', '1.7x', '3.3x', '6.5x']
-    speed_idx = 2  # Default is 0.60s per step
+    speed_idx = 2  # Default 0.60s per step
+    is_dragging_speed = False
 
     current_step = 0
-    is_playing = False  # Start paused in READY state so user can setup camera and speed before starting
+    is_playing = False
     last_advance_time = time.time()
-
-    lvl_name = os.path.basename(level).replace(".json", "")
 
     # Build metrics dict for sidebar
     sidebar_metrics = None
@@ -178,6 +253,91 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
             'visited': metrics.get('visited', 0),
         }
 
+    def switch_level_and_algo(new_level, new_algo):
+        nonlocal current_level, current_algo, current_algo_idx, current_level_idx
+        nonlocal ctrl, solution, moves, snapshots, total_steps, current_step, is_playing, last_advance_time
+        nonlocal lvl_name, algo_name, sidebar_metrics, status
+
+        current_level = new_level
+        current_algo = new_algo
+        current_algo_idx = algo_list.index(current_algo)
+        current_level_idx = available_levels.index(current_level) if current_level in available_levels else 0
+
+        lvl_name = os.path.basename(current_level).replace(".json", "")
+        algo_name = ALGO_CONFIGS[current_algo]['name']
+
+        # Update board dimensions & camera target/distance
+        m_new = maps(current_level)
+        display.rows = m_new.size[0] if m_new.size[0] > 0 else 6
+        display.cols = m_new.size[1] if m_new.size[1] > 0 else 10
+        display.target = [display.cols / 2.0, -display.rows / 2.0, 0.5]
+        display.initial_target = list(display.target)
+        display.distance = max(display.cols, display.rows) * 1.5 + 4.0
+        display.initial_distance = display.distance
+        display.setup_camera()
+
+        ctrl = Control(m_new)
+        ctrl.Play_handle = True
+
+        # Render "SOLVING..." frame so UI gives immediate responsive feedback
+        pygame.display.set_caption(f"Bloxorz 3D - Solving {lvl_name} with {algo_name}...")
+        ctrl.draw_maps()
+        ctrl.draw_box()
+        display.draw_sidebar({
+            'level_name': lvl_name,
+            'algo_name': algo_name,
+            'current_step': 0,
+            'total_steps': 1,
+            'status': "SOLVING...",
+            'moves_str': "Computing path...",
+            'speed_label': speed_labels[speed_idx],
+            'speed_idx': speed_idx,
+            'speed_count': len(speeds),
+            'metrics': None,
+        })
+        display.update()
+
+        # Run solver
+        sol, met = run_solver(current_level, current_algo)
+        solution = sol
+        sidebar_metrics = {
+            'time_sec': met.get('time_sec', 0),
+            'peak_mem_kb': met.get('peak_mem_kb', 0),
+            'visited': met.get('visited', 0),
+        }
+
+        if solution and len(solution) > 0:
+            moves = met.get('actions') or solution_to_moves(solution)
+            try:
+                snapshots = build_snapshots(current_level, solution, met.get('actions'))
+                total_steps = len(snapshots)
+            except Exception as e:
+                print(f"Error building snapshots: {e}")
+                snapshots = [{
+                    'current': deepcopy(ctrl.current),
+                    'maps': deepcopy(ctrl.maps.maps),
+                    'is_split': ctrl.maps.is_split,
+                    'split_boxes': deepcopy(ctrl.maps.split_boxes),
+                    'active_box_index': ctrl.maps.active_box_index
+                }]
+                total_steps = 1
+            current_step = 0
+            is_playing = False
+            status = "READY"
+        else:
+            moves = []
+            snapshots = [{
+                'current': deepcopy(ctrl.current),
+                'maps': deepcopy(ctrl.maps.maps),
+                'is_split': ctrl.maps.is_split,
+                'split_boxes': deepcopy(ctrl.maps.split_boxes),
+                'active_box_index': ctrl.maps.active_box_index
+            }]
+            total_steps = 1
+            current_step = 0
+            is_playing = False
+            status = "NO SOLUTION"
+
     while True:
         # 1. Event handling
         for event in pygame.event.get():
@@ -185,37 +345,116 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
                 pygame.quit()
                 return
 
-            # Click on Replay Start/Pause button in sidebar
+            # Mouse button clicks in sidebar
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if hasattr(display, 'replay_btn_rect') and display.replay_btn_rect.collidepoint(event.pos):
-                    if current_step == total_steps - 1:
-                        current_step = 0
-                        is_playing = True
-                        last_advance_time = time.time()
-                    else:
-                        is_playing = not is_playing
-                        if is_playing:
+                # Speed slider bar click
+                if hasattr(display, 'speed_bar_rect') and display.speed_bar_rect.collidepoint(event.pos):
+                    rel_x = event.pos[0] - display.speed_bar_rect.x
+                    ratio = max(0.0, min(0.999, rel_x / max(1, display.speed_bar_rect.width)))
+                    speed_idx = int(ratio * len(speeds))
+                    is_dragging_speed = True
+                    continue
+
+                # Level < button
+                elif hasattr(display, 'btn_prev_level_rect') and display.btn_prev_level_rect.collidepoint(event.pos):
+                    new_l_idx = (current_level_idx - 1) % len(available_levels)
+                    switch_level_and_algo(available_levels[new_l_idx], current_algo)
+                    continue
+
+                # Level > button
+                elif hasattr(display, 'btn_next_level_rect') and display.btn_next_level_rect.collidepoint(event.pos):
+                    new_l_idx = (current_level_idx + 1) % len(available_levels)
+                    switch_level_and_algo(available_levels[new_l_idx], current_algo)
+                    continue
+
+                # Algorithm < button
+                elif hasattr(display, 'btn_prev_algo_rect') and display.btn_prev_algo_rect.collidepoint(event.pos):
+                    new_a_idx = (current_algo_idx - 1) % len(algo_list)
+                    switch_level_and_algo(current_level, algo_list[new_a_idx])
+                    continue
+
+                # Algorithm > button
+                elif hasattr(display, 'btn_next_algo_rect') and display.btn_next_algo_rect.collidepoint(event.pos):
+                    new_a_idx = (current_algo_idx + 1) % len(algo_list)
+                    switch_level_and_algo(current_level, algo_list[new_a_idx])
+                    continue
+
+                # Replay Start/Pause button
+                elif hasattr(display, 'replay_btn_rect') and display.replay_btn_rect.collidepoint(event.pos):
+                    if status not in ["NO SOLUTION", "SOLVING..."]:
+                        if current_step == total_steps - 1:
+                            current_step = 0
+                            is_playing = True
                             last_advance_time = time.time()
+                        else:
+                            is_playing = not is_playing
+                            if is_playing:
+                                last_advance_time = time.time()
+                    continue
+
+            # Mouse button release
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                is_dragging_speed = False
+
+            # Mouse drag on speed slider
+            if event.type == pygame.MOUSEMOTION and is_dragging_speed:
+                if hasattr(display, 'speed_bar_rect') and display.speed_bar_rect.width > 0:
+                    rel_x = event.pos[0] - display.speed_bar_rect.x
+                    ratio = max(0.0, min(0.999, rel_x / max(1, display.speed_bar_rect.width)))
+                    speed_idx = int(ratio * len(speeds))
                     continue
 
             if display.handle_camera_event(event):
                 continue
 
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
-                    if current_step == total_steps - 1:
-                        current_step = 0
-                        is_playing = True
-                        last_advance_time = time.time()
-                    else:
-                        is_playing = not is_playing
-                        if is_playing:
+                # Level navigation: [ / ] or , / . or PageUp / PageDown or < / >
+                if event.key in [pygame.K_LEFTBRACKET, pygame.K_COMMA, pygame.K_PAGEUP, pygame.K_LESS]:
+                    new_l_idx = (current_level_idx - 1) % len(available_levels)
+                    switch_level_and_algo(available_levels[new_l_idx], current_algo)
+                    continue
+                elif event.key in [pygame.K_RIGHTBRACKET, pygame.K_PERIOD, pygame.K_PAGEDOWN, pygame.K_GREATER]:
+                    new_l_idx = (current_level_idx + 1) % len(available_levels)
+                    switch_level_and_algo(available_levels[new_l_idx], current_algo)
+                    continue
+
+                # Algorithm navigation: Tab or A
+                elif event.key == pygame.K_TAB:
+                    mods = pygame.key.get_mods()
+                    direction = -1 if (mods & pygame.KMOD_SHIFT) else 1
+                    new_a_idx = (current_algo_idx + direction) % len(algo_list)
+                    switch_level_and_algo(current_level, algo_list[new_a_idx])
+                    continue
+                elif event.key == pygame.K_a:
+                    new_a_idx = (current_algo_idx + 1) % len(algo_list)
+                    switch_level_and_algo(current_level, algo_list[new_a_idx])
+                    continue
+
+                # Manual Play shortcut: P
+                elif event.key == pygame.K_p:
+                    m_p = maps(current_level)
+                    p_state = Control(m_p)
+                    p_state.Play_handle = True
+                    handle(p_state, map_size=(m_p.size[0], m_p.size[1]))
+                    switch_level_and_algo(current_level, current_algo)
+                    continue
+
+                # Playback controls
+                elif event.key == pygame.K_SPACE:
+                    if status not in ["NO SOLUTION", "SOLVING..."]:
+                        if current_step == total_steps - 1:
+                            current_step = 0
+                            is_playing = True
                             last_advance_time = time.time()
+                        else:
+                            is_playing = not is_playing
+                            if is_playing:
+                                last_advance_time = time.time()
                 elif event.key in [pygame.K_RIGHT, pygame.K_n]:
                     is_playing = False
                     if current_step < total_steps - 1:
                         current_step += 1
-                elif event.key in [pygame.K_LEFT, pygame.K_p]:
+                elif event.key in [pygame.K_LEFT]:
                     is_playing = False
                     if current_step > 0:
                         current_step -= 1
@@ -241,10 +480,13 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
                     is_playing = False
 
         # 3. Apply snapshot for current step
-        apply_snapshot(ctrl, snapshots[current_step])
+        if current_step < len(snapshots):
+            apply_snapshot(ctrl, snapshots[current_step])
 
         # 4. Status
-        if current_step == total_steps - 1:
+        if status in ["NO SOLUTION", "SOLVING..."]:
+            pass
+        elif current_step == total_steps - 1 and total_steps > 1:
             status = "GOAL REACHED"
         elif is_playing:
             status = "PLAYING"
@@ -277,8 +519,10 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
             'current_step': current_step,
             'total_steps': total_steps,
             'status': status,
-            'moves_str': moves_sub_str,
+            'moves_str': moves_sub_str if moves else ("No solution found" if status == "NO SOLUTION" else ""),
             'speed_label': speed_labels[speed_idx],
+            'speed_idx': speed_idx,
+            'speed_count': len(speeds),
             'metrics': sidebar_metrics,
         })
         display.update()
@@ -357,6 +601,7 @@ def run_solver(level_path, algorithm_enum):
 
     sol = None
     visited_count = 0
+    solver_actions = None
 
     if func is not None:
         try:
@@ -390,9 +635,22 @@ def run_solver(level_path, algorithm_enum):
                 elif len(res) == 1:
                     sol = res[0]
                     visited_count = len(sol) if isinstance(sol, (list, tuple)) else 0
+                if hasattr(res, 'actions') and res.actions:
+                    if isinstance(res.actions, str):
+                        import re
+                        solver_actions = res.actions.split() if ' ' in res.actions else (re.findall(r'SW|[UDLR]', res.actions) if 'SW' in res.actions else list(res.actions))
+                    else:
+                        solver_actions = list(res.actions)
             elif isinstance(res, dict):
                 sol = res.get('path') or res.get('solution') or res.get('moves')
                 visited_count = res.get('visited') or res.get('visited_count') or res.get('expanded') or 0
+                if res.get('actions'):
+                    acts = res.get('actions')
+                    if isinstance(acts, str):
+                        import re
+                        solver_actions = acts.split() if ' ' in acts else (re.findall(r'SW|[UDLR]', acts) if 'SW' in acts else list(acts))
+                    else:
+                        solver_actions = list(acts) if isinstance(acts, (list, tuple)) else None
             elif isinstance(res, list):
                 sol = res
                 visited_count = len(res)
@@ -407,8 +665,13 @@ def run_solver(level_path, algorithm_enum):
     _, peak_mem = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    # If solution is move strings like ['U', 'R', ...], convert to state sequence
-    if sol and isinstance(sol, list) and len(sol) > 0 and isinstance(sol[0], str) and sol[0].upper() in ['U', 'D', 'L', 'R', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'SW', 'SPACE']:
+    # If the solver returned move strings, convert them to a replayable state sequence.
+    move_tokens = {'U', 'D', 'L', 'R', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'SW', 'SPACE'}
+    if isinstance(sol, list) and all(
+        isinstance(move, str) and move.upper() in move_tokens
+        for move in sol
+    ):
+        solver_actions = [move.upper() for move in sol]
         move_map = {
             'U': 'move_up', 'UP': 'move_up',
             'D': 'move_down', 'DOWN': 'move_down',
@@ -423,15 +686,14 @@ def run_solver(level_path, algorithm_enum):
         for m_str in sol:
             action = move_map.get(m_str.upper())
             if action == 'switch':
-                c_temp.maps.switch_box()
-                c_temp.update_current_location()
+                c_temp.switch_box()
             elif action:
                 getattr(c_temp, action)()
             states.append(deepcopy(c_temp.current))
-        moves = [m_str.upper() for m_str in sol]
+        moves = solver_actions
         sol = states
     else:
-        moves = solution_to_moves(sol) if sol else []
+        moves = solver_actions if solver_actions else (solution_to_moves(sol) if sol else [])
 
     metrics = {
         'algorithm': name,
@@ -440,6 +702,7 @@ def run_solver(level_path, algorithm_enum):
         'steps': len(sol) if sol else 0,
         'moves_count': len(moves),
         'moves_str': format_moves(moves) if moves else "—",
+        'actions': solver_actions,
         'visited': visited_count,
         'time_sec': t_elapsed,
         'peak_mem_kb': peak_mem / 1024.0
@@ -478,10 +741,13 @@ def benchmark_all_algorithms(level_path):
 
 
 def get_available_levels():
+    import re
+    def natural_sort_key(s):
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)]
     lvl_files = []
     lvl_dir = "./level"
     if os.path.exists(lvl_dir):
-        for f in sorted(os.listdir(lvl_dir)):
+        for f in sorted(os.listdir(lvl_dir), key=natural_sort_key):
             if f.endswith(".json"):
                 lvl_files.append(os.path.join(lvl_dir, f))
     return lvl_files
@@ -556,18 +822,16 @@ def interactive_menu():
             sol, metrics = run_solver(selected_level, chosen_algo)
             print_metrics(metrics)
 
-            if metrics['solved']:
-                m = maps(selected_level)
-                draw_path_3D(
-                    sol,
-                    timesleep=0.60,
-                    level=selected_level,
-                    map_size=(m.size[0], m.size[1]),
-                    algo_name=metrics['algorithm'],
-                    metrics=metrics
-                )
-            else:
-                input("No solution found! Press Enter to return to menu...")
+            m = maps(selected_level)
+            draw_path_3D(
+                sol,
+                timesleep=0.60,
+                level=selected_level,
+                map_size=(m.size[0], m.size[1]),
+                algo_name=metrics['algorithm'],
+                metrics=metrics,
+                algorithm_enum=chosen_algo
+            )
 
         elif choice == '3':
             benchmark_all_algorithms(selected_level)
@@ -584,8 +848,7 @@ def main(level=Level.lv1, Play_handle=False, algorithm=Algorithm.BFS, view='3'):
     else:
         sol, metrics = run_solver(level, algorithm)
         print_metrics(metrics)
-        if metrics['solved']:
-            draw_path_3D(sol, level=level, map_size=(size[0], size[1]), algo_name=metrics['algorithm'], metrics=metrics)
+        draw_path_3D(sol, level=level, map_size=(size[0], size[1]), algo_name=metrics['algorithm'], metrics=metrics, algorithm_enum=algorithm)
 
 
 def run_gui_launcher():
@@ -612,16 +875,16 @@ def run_gui_launcher():
 
             sol, metrics = run_solver(level_path, algo_enum)
             print_metrics(metrics)
-            if metrics['solved']:
-                m = maps(level_path)
-                draw_path_3D(
-                    sol,
-                    timesleep=0.60,
-                    level=level_path,
-                    map_size=(m.size[0], m.size[1]),
-                    algo_name=metrics['algorithm'],
-                    metrics=metrics
-                )
+            m = maps(level_path)
+            draw_path_3D(
+                sol,
+                timesleep=0.60,
+                level=level_path,
+                map_size=(m.size[0], m.size[1]),
+                algo_name=metrics['algorithm'],
+                metrics=metrics,
+                algorithm_enum=algo_enum
+            )
 
         elif mode == 'benchmark':
             results = []

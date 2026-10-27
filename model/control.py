@@ -112,8 +112,9 @@ class Control:
         else:
             self.maps.is_split = False
             self.maps.split_boxes = []
-            self.maps.current_box.location = deepcopy(self.current)
-            self.maps.current_box.pre_location = deepcopy(self.current)
+            merged_box = Box("#", 2, deepcopy(self.current))
+            merged_box.on()
+            self.maps.current_box = merged_box
         
     def get_state(self):
         return deepcopy(self.current)
@@ -198,40 +199,52 @@ class Control:
             b2 = self.maps.split_boxes[1]
             if self.maps.active_box_index == 0:
                 Cube.draw_box(position=(b1.location[0][1], b1.location[0][0]), size=(1, 1, 1),
-                              face_color=(0.2, 0.7, 1.0), border_color=(1.0, 1.0, 0.0))
+                              face_color=(0.2, 0.7, 1.0, 0.95), border_color=(1.0, 1.0, 0.0, 1.0))
                 Cube.draw_box(position=(b2.location[0][1], b2.location[0][0]), size=(1, 1, 1),
-                              face_color=(0.3, 0.4, 0.6), border_color=(0.5, 0.5, 0.5))
+                              face_color=(0.3, 0.4, 0.6, 0.90), border_color=(0.5, 0.5, 0.5, 1.0))
             else:
                 Cube.draw_box(position=(b1.location[0][1], b1.location[0][0]), size=(1, 1, 1),
-                              face_color=(0.3, 0.4, 0.6), border_color=(0.5, 0.5, 0.5))
+                              face_color=(0.3, 0.4, 0.6, 0.90), border_color=(0.5, 0.5, 0.5, 1.0))
                 Cube.draw_box(position=(b2.location[0][1], b2.location[0][0]), size=(1, 1, 1),
-                              face_color=(0.2, 0.7, 1.0), border_color=(1.0, 1.0, 0.0))
+                              face_color=(0.2, 0.7, 1.0, 0.95), border_color=(1.0, 1.0, 0.0, 1.0))
             return
 
-        if len(self.current) == 2:
-            current = self.current
-        else: current = [self.current[0], self.current[0]]
+        # Ensure current_box has correct state for merged/normal double box
+        if hasattr(self.maps, 'current_box') and self.maps.current_box:
+            if not self.maps.is_split and self.maps.current_box.state != 2:
+                self.maps.current_box.state = 2
+                self.maps.current_box.symbol = "#"
 
-        if self.maps.current_box.is_standing():
-            Cube.draw_box(position=(current[0][1], current[0][0]), size=(1, 1, 2), border_color=(0.8, 0.8, 0.8))
-        elif self.maps.current_box.is_vertical():
-            Cube.draw_box(position=(current[1][1], current[1][0]), size=(1, 2, 1), border_color=(0.8, 0.8, 0.8))
-        elif self.maps.current_box.is_horizontal():
-            Cube.draw_box(position=(current[0][1], current[0][0]), size=(2, 1, 1), border_color=(0.8, 0.8, 0.8))
+        face_col = (0.2470588235294118, 0.2823529411764706, 0.8, 0.95)
+        border_col = (0.8, 0.8, 0.8, 1.0)
+
+        if len(self.current) == 2:
+            c1, c2 = self.current
+            min_r = min(c1[0], c2[0])
+            min_c = min(c1[1], c2[1])
+            if c1[0] == c2[0]:
+                # Horizontal (along row, spans 2 columns)
+                Cube.draw_box(position=(min_c, min_r), size=(2, 1, 1), face_color=face_col, border_color=border_col)
+            else:
+                # Vertical (along column, spans 2 rows)
+                Cube.draw_box(position=(min_c, min_r), size=(1, 2, 1), face_color=face_col, border_color=border_col)
+        elif len(self.current) == 1:
+            Cube.draw_box(position=(self.current[0][1], self.current[0][0]), size=(1, 1, 2), face_color=face_col, border_color=border_col)
     
     def draw_StartBox(self):
-        if len(self.start) == 2:
-            current = self.start
-        else: current = [self.start[0], self.start[0]]
-        
-        BoxStart = Box("#", len(self.start), self.start)
+        face_col = (0.2470588235294118, 0.2823529411764706, 0.8, 0.95)
+        border_col = (0.8, 0.8, 0.8, 1.0)
 
-        if BoxStart.is_standing():
-            Cube.draw_box(position=(current[0][1], current[0][0]), size=(1, 1, 2), border_color=(0.8, 0.8, 0.8))
-        elif BoxStart.is_vertical():
-            Cube.draw_box(position=(current[1][1], current[1][0]), size=(1, 2, 1), border_color=(0.8, 0.8, 0.8))
-        elif BoxStart.is_horizontal():
-            Cube.draw_box(position=(current[0][1], current[0][0]), size=(2, 1, 1), border_color=(0.8, 0.8, 0.8))
+        if len(self.start) == 2:
+            c1, c2 = self.start
+            min_r = min(c1[0], c2[0])
+            min_c = min(c1[1], c2[1])
+            if c1[0] == c2[0]:
+                Cube.draw_box(position=(min_c, min_r), size=(2, 1, 1), face_color=face_col, border_color=border_col)
+            else:
+                Cube.draw_box(position=(min_c, min_r), size=(1, 2, 1), face_color=face_col, border_color=border_col)
+        elif len(self.start) == 1:
+            Cube.draw_box(position=(self.start[0][1], self.start[0][0]), size=(1, 1, 2), face_color=face_col, border_color=border_col)
     
     def draw_StartMaps(self):
         height, width = self.size

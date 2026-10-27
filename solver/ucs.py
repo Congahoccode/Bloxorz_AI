@@ -14,6 +14,7 @@ import heapq
 import json
 import time
 import tracemalloc
+from copy import deepcopy
 
 # 4 hướng lăn
 DIRS = {"U": (-1, 0), "D": (1, 0), "L": (0, -1), "R": (0, 1)}
@@ -54,7 +55,10 @@ UNIFORM = CostModel(base=1, fragile_extra=0, switch_bonus=0)
 # ĐỌC LEVEL VÀ LUẬT CHƠI
 class Level:
     def __init__(self, source):
-        if isinstance(source, dict):
+        if isinstance(source, Level):
+            self.__dict__.update(deepcopy(source.__dict__))
+            return
+        elif isinstance(source, dict):
             data = source
         elif isinstance(source, str):
             with open(source, "r", encoding="utf-8") as f:
@@ -64,6 +68,11 @@ class Level:
                 data = json.load(f)
         elif hasattr(source, "maps") and hasattr(source.maps, "jsonObj") and source.maps.jsonObj:
             data = source.maps.jsonObj
+        elif hasattr(source, "path") and source.path:
+            with open(source.path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        elif hasattr(source, "jsonObj") and source.jsonObj:
+            data = source.jsonObj
         else:
             raise ValueError(f"Cannot initialize Level from {type(source)}")
 
@@ -136,6 +145,33 @@ class Level:
                 self.switch_at[pos].append(item)
                 count += 1
 
+        # CÔNG TẮC PHÂN TÁCH KHỐI (swO)
+        # swo_at[ô] = danh sách (b1_pos, b2_pos, b_ids, permanent, count)
+        self.swo_at = {}
+        swo_group = data.get("swO") or {}
+        for name in swo_group.get("symbol", []):
+            s = swo_group.get(name, {})
+            pos = tuple(s.get("location", []))
+            permanent = (s.get("type", 0) != 0)
+            b_val = s.get("bridge")
+            if isinstance(b_val, list):
+                b_ids = [bridge_index[b] for b in b_val if b in bridge_index]
+            elif b_val in bridge_index:
+                b_ids = [bridge_index[b_val]]
+            else:
+                b_ids = []
+
+            box1_data = s.get("box1", {})
+            box2_data = s.get("box2", {})
+            b1_pos = tuple(box1_data.get("location", [[pos[0], pos[1]]])[0])
+            b2_pos = tuple(box2_data.get("location", [[pos[0], pos[1] + 1]])[0])
+
+            item = (b1_pos, b2_pos, b_ids, permanent, count)
+            if pos not in self.swo_at:
+                self.swo_at[pos] = []
+            self.swo_at[pos].append(item)
+            count += 1
+
         # Trạng thái bắt đầu
         self.start = (tuple(start_cells), tuple(first_bridges), tuple([0] * count))
 
@@ -163,6 +199,18 @@ class Level:
             elif self.grid[r][c] == 2 and standing:
                 # Ô fragile: đứng lên là vỡ
                 return False
+        return True
+
+    def can_stand_single(self, pos, bridges):
+        r, c = pos
+        if r < 0 or r >= self.rows or c < 0 or c >= self.cols:
+            return False
+        if pos in self.bridge_of_cell:
+            if bridges[self.bridge_of_cell[pos]] == 0:
+                return False
+        elif self.grid[r][c] == 0:
+            return False
+        # Khối đơn 1x1 đứng an toàn trên ô fragile (type == 2)
         return True
 
     def roll(self, cells, direction):
@@ -193,12 +241,120 @@ class Level:
         return tuple(new_cells)
 
     def get_next_states(self, state, cost_model):
-        # Trả về danh sách hợp lệ.
         cells = state[0]
         bridges = state[1]
         used = state[2]
         result = []
 
+        # -------------------------------------------------------------
+        # NHÁNH 1: BLOCK ĐANG BỊ TÁCH THÀNH 2 KHỐI 1x1 (cells có 3 phần tử)
+        # cells = ((b1_pos,), (b2_pos,), active_idx)
+        # -------------------------------------------------------------
+        if len(cells) == 3:
+            b1 = cells[0][0]
+            b2 = cells[1][0]
+            active_idx = cells[2]
+
+            # 1. Đổi khối điều khiển ('SW')
+            sw_cells = (cells[0], cells[1], 1 - active_idx)
+            sw_cost = cost_model.step_cost(on_fragile=False, pressed_switch=False)
+            result.append(('SW', (sw_cells, bridges, used), sw_cost))
+
+            # 2. Di chuyển khối active theo các hướng
+            cur_pos = b1 if active_idx == 0 else b2
+            other_pos = b2 if active_idx == 0 else b1
+
+            for action in DIRS:
+                dr, dc = DIRS[action]
+                nxt_pos = (cur_pos[0] + dr, cur_pos[1] + dc)
+
+                # Không được đi vào ô của khối kia
+                if nxt_pos == other_pos:
+                    continue
+
+                # Ô mới phải có sàn vững chắc
+                if not self.can_stand_single(nxt_pos, bridges):
+                    continue
+
+                # Kiểm tra hợp nhất (khi 2 khối nằm kề cạnh nhau: khoảng cách Manhattan = 1)
+                dr_m = abs(nxt_pos[0] - other_pos[0])
+                dc_m = abs(nxt_pos[1] - other_pos[1])
+                if dr_m + dc_m == 1:
+                    # Gộp thành khối đôi nằm ngang/dọc (2 ô)
+                    merged_cells = tuple(sorted([nxt_pos, other_pos]))
+
+                    # Xử lý kích hoạt công tắc mềm swQ tại ô vừa dẫm
+                    new_bridges = list(bridges)
+                    new_used = list(used)
+                    pressed = False
+                    if nxt_pos in self.switch_at:
+                        for sw in self.switch_at[nxt_pos]:
+                            kind, permanent, bridge_ids, sw_id = sw
+                            if kind == "soft":
+                                if permanent and new_used[sw_id] == 1:
+                                    continue
+                                for bridge_id in bridge_ids:
+                                    if permanent:
+                                        new_bridges[bridge_id] = 1
+                                    else:
+                                        new_bridges[bridge_id] = 1 - new_bridges[bridge_id]
+                                if permanent:
+                                    new_used[sw_id] = 1
+                                pressed = True
+
+                    new_bridges = tuple(new_bridges)
+                    new_used = tuple(new_used)
+
+                    # Khối đôi sau khi gộp phải đứng vững trên sàn
+                    if not self.can_stand(merged_cells, new_bridges):
+                        continue
+
+                    on_fragile = (self.grid[nxt_pos[0]][nxt_pos[1]] == 2 or self.grid[other_pos[0]][other_pos[1]] == 2)
+                    cost = cost_model.step_cost(on_fragile, pressed)
+                    result.append((action, (merged_cells, new_bridges, new_used), cost))
+                else:
+                    # Chưa gộp: tiếp tục ở trạng thái tách
+                    new_bridges = list(bridges)
+                    new_used = list(used)
+                    pressed = False
+                    if nxt_pos in self.switch_at:
+                        for sw in self.switch_at[nxt_pos]:
+                            kind, permanent, bridge_ids, sw_id = sw
+                            if kind == "soft":
+                                if permanent and new_used[sw_id] == 1:
+                                    continue
+                                for bridge_id in bridge_ids:
+                                    if permanent:
+                                        new_bridges[bridge_id] = 1
+                                    else:
+                                        new_bridges[bridge_id] = 1 - new_bridges[bridge_id]
+                                if permanent:
+                                    new_used[sw_id] = 1
+                                pressed = True
+
+                    new_bridges = tuple(new_bridges)
+                    new_used = tuple(new_used)
+
+                    # Cả 2 khối đều phải đứng vững sau khi cầu đổi trạng thái
+                    if not self.can_stand_single(nxt_pos, new_bridges):
+                        continue
+                    if not self.can_stand_single(other_pos, new_bridges):
+                        continue
+
+                    if active_idx == 0:
+                        next_cells = ((nxt_pos,), (other_pos,), 0)
+                    else:
+                        next_cells = ((other_pos,), (nxt_pos,), 1)
+
+                    on_fragile = (self.grid[nxt_pos[0]][nxt_pos[1]] == 2)
+                    cost = cost_model.step_cost(on_fragile, pressed)
+                    result.append((action, (next_cells, new_bridges, new_used), cost))
+
+            return result
+
+        # -------------------------------------------------------------
+        # NHÁNH 2: KHỐI ĐÔI BÌNH THƯỜNG (ĐỨNG HOẶC NẰM)
+        # -------------------------------------------------------------
         for action in DIRS:
             new_cells = self.roll(cells, DIRS[action])
 
@@ -206,11 +362,60 @@ class Level:
             if not self.can_stand(new_cells, bridges):
                 continue
 
-            # Kiểm tra có bấm công tắc nào không
+            standing = (len(new_cells) == 1)
+
+            # Kiểm tra dẫm lên công tắc phân tách swO khi đứng thẳng
+            if standing and new_cells[0] in self.swo_at:
+                for swo in self.swo_at[new_cells[0]]:
+                    b1_pos, b2_pos, bridge_ids, permanent, sw_id = swo
+                    if permanent and used[sw_id] == 1:
+                        continue
+                    new_bridges = list(bridges)
+                    new_used = list(used)
+                    for b_id in bridge_ids:
+                        if permanent:
+                            new_bridges[b_id] = 1
+                        else:
+                            new_bridges[b_id] = 1 - new_bridges[b_id]
+                    if permanent:
+                        new_used[sw_id] = 1
+
+                    new_bridges_t = tuple(new_bridges)
+                    if not self.can_stand_single(b1_pos, new_bridges_t) or not self.can_stand_single(b2_pos, new_bridges_t):
+                        continue
+
+                    # Kích hoạt công tắc mềm tại vị trí rơi của box1 nếu có
+                    pressed = False
+                    if b1_pos in self.switch_at:
+                        for sw in self.switch_at[b1_pos]:
+                            kind, p_sw, b_ids, s_id = sw
+                            if kind == "soft":
+                                if p_sw and new_used[s_id] == 1:
+                                    continue
+                                for b_id in b_ids:
+                                    if p_sw:
+                                        new_bridges[b_id] = 1
+                                    else:
+                                        new_bridges[b_id] = 1 - new_bridges[b_id]
+                                if p_sw:
+                                    new_used[s_id] = 1
+                                pressed = True
+
+                    new_bridges_t = tuple(new_bridges)
+                    new_used_t = tuple(new_used)
+                    if not self.can_stand_single(b1_pos, new_bridges_t) or not self.can_stand_single(b2_pos, new_bridges_t):
+                        continue
+
+                    split_cells = ((b1_pos,), (b2_pos,), 0)
+                    on_fragile = (self.grid[b1_pos[0]][b1_pos[1]] == 2 or self.grid[b2_pos[0]][b2_pos[1]] == 2)
+                    cost = cost_model.step_cost(on_fragile, pressed or bool(bridge_ids))
+                    result.append((action, (split_cells, new_bridges_t, new_used_t), cost))
+                continue
+
+            # Kiểm tra có bấm công tắc swQ / swX nào không
             new_bridges = list(bridges)
             new_used = list(used)
             pressed = False
-            standing = (len(new_cells) == 1)
 
             for cell in new_cells:
                 if cell not in self.switch_at:
@@ -242,10 +447,7 @@ class Level:
                 continue
 
             # Tính chi phí
-            on_fragile = False
-            for cell in new_cells:
-                if self.grid[cell[0]][cell[1]] == 2:
-                    on_fragile = True
+            on_fragile = any(self.grid[cell[0]][cell[1]] == 2 for cell in new_cells)
             cost = cost_model.step_cost(on_fragile, pressed)
 
             new_state = (new_cells, new_bridges, new_used)
@@ -310,15 +512,18 @@ def build_result(level, goal_state, parent, total_cost, expanded):
     actions.reverse()
     states.reverse()
 
-    # Đổi sang dạng list
+    # Đổi sang dạng list / tuple phù hợp với Control.set_state và solution_to_moves
     path = []
     for s in states:
-        cells = []
-        for c in s[0]:
-            cells.append([c[0], c[1]])
-        path.append(cells)
+        cells = s[0]
+        if len(cells) == 3:
+            loc1 = [[cells[0][0][0], cells[0][0][1]]]
+            loc2 = [[cells[1][0][0], cells[1][0][1]]]
+            path.append((loc1, loc2, cells[2]))
+        else:
+            path.append([[c[0], c[1]] for c in cells])
 
-    return {"actions": "".join(actions), "path": path,
+    return {"actions": actions, "path": path,
             "cost": total_cost, "expanded": expanded}
 
 
@@ -348,12 +553,24 @@ def run_ucs(level_path, cost_model=None):
     return out
 
 
+class SolveResult(tuple):
+    """Tuỳ biến tuple trả về để vừa tương thích (path, expanded) vừa chứa actions và cost."""
+    def __new__(cls, path, expanded, actions=None, cost=None):
+        return super().__new__(cls, (path, expanded))
+
+    def __init__(self, path, expanded, actions=None, cost=None):
+        self.path = path
+        self.expanded = expanded
+        self.actions = actions
+        self.cost = cost
+
+
 # ENTRY POINT CHO RUN.PY VÀ GUI
 def solve(state_or_path, cost_model=None):
     """
     Điểm vào giải bài toán tương thích với run.py và giao diện GUI.
     Nhận đường dẫn file level, instance Level, hoặc đối tượng Control (state).
-    Trả về: (path, expanded) hoặc (None, 0)
+    Trả về: SolveResult(path, expanded, actions, cost) hoặc (None, 0)
     """
     if cost_model is None:
         cost_model = CostModel()
@@ -362,7 +579,7 @@ def solve(state_or_path, cost_model=None):
         res = ucs(level, cost_model)
         if res is None:
             return None, 0
-        return res["path"], res["expanded"]
+        return SolveResult(res["path"], res["expanded"], actions=res["actions"], cost=res["cost"])
     except Exception as e:
         print(f"Lỗi khi chạy thuật toán UCS: {e}")
         return None, 0
