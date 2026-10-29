@@ -8,7 +8,7 @@ from OpenGL.GLU import *
 
 class Display:
     # Sidebar width constant
-    SIDEBAR_W = 260
+    SIDEBAR_W = 280
 
     def __init__(self, title='', size=(800, 600), map_size=(10, 6)):
         self.size = size
@@ -83,13 +83,13 @@ class Display:
             return
         try:
             pygame.font.init()
-            self._font_title = pygame.font.SysFont('Arial', 15, bold=True)
-            self._font_label = pygame.font.SysFont('Arial', 11)
-            self._font_value = pygame.font.SysFont('Arial', 13, bold=True)
-            self._font_small = pygame.font.SysFont('Arial', 10)
-            self._font_key = pygame.font.SysFont('Consolas', 10, bold=True)
+            self._font_title = pygame.font.SysFont('Arial', 18, bold=True)
+            self._font_label = pygame.font.SysFont('Arial', 13)
+            self._font_value = pygame.font.SysFont('Arial', 16, bold=True)
+            self._font_small = pygame.font.SysFont('Arial', 12)
+            self._font_key = pygame.font.SysFont('Consolas', 12, bold=True)
             if not self._font_key:
-                self._font_key = pygame.font.SysFont('monospace', 10, bold=True)
+                self._font_key = pygame.font.SysFont('monospace', 12, bold=True)
             self._fonts_initialized = True
         except Exception:
             pass
@@ -450,8 +450,8 @@ class Display:
                 self._render_text_to_gl(ls, sb_x + pad, cy)
                 cy += ls.get_height() + 2
 
-            btn_w = 26
-            btn_h = 24
+            btn_w = 28
+            btn_h = 28
             gap = 4
             content_w = sb_w - pad * 2
             box_w = content_w - (btn_w * 2 + gap * 2)
@@ -723,7 +723,7 @@ class Display:
             col_w = (sb_w - pad * 2 - col_gap) // 2
             col1_x = sb_x + pad
             col2_x = col1_x + col_w + col_gap
-            card_h = 42
+            card_h = 46
 
             # Column 1: Search Time
             time_sec = metrics.get('time_sec', 0.0)
@@ -733,7 +733,7 @@ class Display:
             lbl1 = self._font_small.render("Search Time", True, (140, 155, 175))
             self._render_text_to_gl(lbl1, col1_x + 8, cy + 4)
             val1 = self._font_value.render(time_str, True, (6, 182, 212))
-            self._render_text_to_gl(val1, col1_x + 8, cy + 20)
+            self._render_text_to_gl(val1, col1_x + 8, cy + 22)
 
             # Column 2: Peak RAM
             mem_kb = metrics.get('peak_mem_kb', 0.0)
@@ -743,7 +743,7 @@ class Display:
             lbl2 = self._font_small.render("Peak RAM", True, (140, 155, 175))
             self._render_text_to_gl(lbl2, col2_x + 8, cy + 4)
             val2 = self._font_value.render(mem_str, True, (249, 115, 22))
-            self._render_text_to_gl(val2, col2_x + 8, cy + 20)
+            self._render_text_to_gl(val2, col2_x + 8, cy + 22)
 
             cy += card_h + 8
 
@@ -770,7 +770,7 @@ class Display:
         # Render from bottom up
         sc_y = sh - 14
         for key, desc in reversed(shortcut_block):
-            sc_y -= 16
+            sc_y -= 19
             ks = self._font_key.render(key, True, (180, 200, 230))
             ds = self._font_small.render(f" {desc}", True, (110, 120, 140))
             self._render_text_to_gl(ks, sb_x + pad, sc_y)

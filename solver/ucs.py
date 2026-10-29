@@ -193,8 +193,8 @@ class Level:
                 if bridges[self.bridge_of_cell[cell]] == 0:
                     return False
             elif self.grid[r][c] == 0:
-                # Ô trống: rơi (ngoại trừ khi đứng thẳng vào ô goal)
-                if not (standing and cell == self.goal):
+                # Ô trống: rơi (ngoại trừ ô goal)
+                if cell != self.goal:
                     return False
             elif self.grid[r][c] == 2 and standing:
                 # Ô fragile: đứng lên là vỡ
@@ -209,7 +209,8 @@ class Level:
             if bridges[self.bridge_of_cell[pos]] == 0:
                 return False
         elif self.grid[r][c] == 0:
-            return False
+            if pos != self.goal:
+                return False
         # Khối đơn 1x1 đứng an toàn trên ô fragile (type == 2)
         return True
 
