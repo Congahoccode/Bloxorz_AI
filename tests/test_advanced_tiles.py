@@ -298,7 +298,7 @@ class TestAdvancedTiles(unittest.TestCase):
 
     # 10. Level 16 Full Integration (Split, Coop Switches, Merge, Heavy Switch, Fragile, Win)
     def test_level_16_full_walkthrough(self):
-        m = maps("level/16_split_coop.json")
+        m = maps("level/16.json")
         ctrl = Control(m)
 
         # Move to swO and split
@@ -344,7 +344,7 @@ class TestAdvancedTiles(unittest.TestCase):
     # 11. Level 17 Full Integration (Soft Switch, Toggle Bridge, Fragile Orange, Heavy Switch, BFS & A* Solvers)
     def test_level_17_full_walkthrough(self):
         from model.solver import bfs_path, astar
-        m = maps("level/17_fragile_bridges.json")
+        m = maps("level/17.json")
         ctrl = Control(m)
 
         self.assertTrue(ctrl.move_up())    # [2, 1], [1, 1] -> touches swQ at [2, 1]
@@ -366,12 +366,12 @@ class TestAdvancedTiles(unittest.TestCase):
         self.assertTrue(ctrl.check_goal())
 
         # Also verify automated search algorithms solve Level 17
-        bfs_ctrl = Control(maps("level/17_fragile_bridges.json"))
+        bfs_ctrl = Control(maps("level/17.json"))
         bfs_solution, _ = bfs_path(bfs_ctrl)
         self.assertIsNotNone(bfs_solution)
         self.assertEqual(len(bfs_solution), 15)
 
-        astar_ctrl = Control(maps("level/17_fragile_bridges.json"))
+        astar_ctrl = Control(maps("level/17.json"))
         astar_solution, _ = astar(astar_ctrl)
         self.assertIsNotNone(astar_solution)
         self.assertEqual(len(astar_solution), 15)

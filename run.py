@@ -81,8 +81,9 @@ class Level:
     lv13 = "./level/13.json"
     lv14 = "./level/14.json"
     lv15 = "./level/15.json"
-    lv16 = "./level/16_split_coop.json"
-    lv17 = "./level/17_fragile_bridges.json"
+    lv16 = "./level/16.json"
+    lv17 = "./level/17.json"
+    lv18 = "./level/18.json"
 
 
 def deltatime(start_time):
@@ -757,7 +758,7 @@ def interactive_menu():
     while True:
         os.system("clear")
         print("=" * 65)
-        print("                 🎮 BLOXORZ GAME & SOLVER 🎮")
+        print("                 === BLOXORZ GAME & SOLVER ===")
         print("=" * 65)
         print(" 1. Manual Play (Arrow keys & Space)")
         print(" 2. Solve Level & Watch 3D Replay (BFS, A*, DFS, etc.)")

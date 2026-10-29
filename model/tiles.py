@@ -54,7 +54,7 @@ class tile:
                 if self.type == tile.SPACE:
                     if self.obj != None:
                         if self.obj.symbol == "$":
-                            return box.is_doubleBox() and box.is_standing()
+                            return box.is_doubleBox()
                         else: return False
                     else: return False
                 # Orange (fragile tile)
