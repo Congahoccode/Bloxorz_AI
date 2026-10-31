@@ -1,3 +1,4 @@
+import os
 import pygame
 import time
 import math
@@ -75,8 +76,96 @@ class Display:
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LINE_SMOOTH)
         glEnable(GL_COLOR_MATERIAL)
+        self._init_background()
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self.draw_background()
 
         self.setup_camera()
+
+    def _init_background(self):
+        """Load the starry background image into an OpenGL texture once."""
+        self._bg_tex_id = None
+        self._bg_img_size = (1, 1)
+        bg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "background.jpg")
+        if not os.path.exists(bg_path):
+            bg_path = "./drawing/background.jpg"
+        if not os.path.exists(bg_path):
+            return
+        try:
+            surf = pygame.image.load(bg_path)
+            w, h = surf.get_size()
+            self._bg_img_size = (w, h)
+            try:
+                raw = pygame.image.tobytes(surf, "RGBA", True)
+            except AttributeError:
+                raw = pygame.image.tostring(surf, "RGBA", True)
+            tex_id = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex_id)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw)
+            glBindTexture(GL_TEXTURE_2D, 0)
+            self._bg_tex_id = tex_id
+        except Exception as e:
+            print(f"Warning: could not load background texture: {e}")
+            self._bg_tex_id = None
+
+    def draw_background(self):
+        """Render the background texture across the 3D viewport without writing to depth buffer."""
+        if not getattr(self, '_bg_tex_id', None):
+            return
+
+        vx, vy, vw, vh = self._get_viewport_rect()
+        glViewport(vx, vy, vw, vh)
+
+        img_w, img_h = self._bg_img_size
+        view_aspect = vw / max(1.0, float(vh))
+        img_aspect = img_w / max(1.0, float(img_h))
+
+        if view_aspect > img_aspect:
+            u0, u1 = 0.0, 1.0
+            v_span = img_aspect / view_aspect
+            v0 = (1.0 - v_span) * 0.5
+            v1 = v0 + v_span
+        else:
+            v0, v1 = 0.0, 1.0
+            u_span = view_aspect / img_aspect
+            u0 = (1.0 - u_span) * 0.5
+            u1 = u0 + u_span
+
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0, 1, 0, 1, -1, 1)
+
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+
+        glDisable(GL_DEPTH_TEST)
+        glDepthMask(GL_FALSE)
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, self._bg_tex_id)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+
+        glBegin(GL_QUADS)
+        glTexCoord2f(u0, v0); glVertex2f(0.0, 0.0)
+        glTexCoord2f(u1, v0); glVertex2f(1.0, 0.0)
+        glTexCoord2f(u1, v1); glVertex2f(1.0, 1.0)
+        glTexCoord2f(u0, v1); glVertex2f(0.0, 1.0)
+        glEnd()
+
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisable(GL_TEXTURE_2D)
+        glDepthMask(GL_TRUE)
+        glEnable(GL_DEPTH_TEST)
+
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
 
     def _init_fonts(self):
         if self._fonts_initialized:
@@ -249,6 +338,7 @@ class Display:
         pygame.display.flip()
         self.lastFrame = self.get_time()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self.draw_background()
         vx, vy, vw, vh = self._get_viewport_rect()
         glViewport(vx, vy, vw, vh)
         self.setup_camera()

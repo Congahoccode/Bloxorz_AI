@@ -463,7 +463,7 @@ def handle(state: Control, map_size=(0, 0)):
                 metrics=metrics,
                 algorithm_enum=algo_enum
             )
-            load_level(lvl)
+            return
         except Exception as e:
             print(f"Error launching solver replay: {e}")
 
@@ -500,12 +500,14 @@ def handle(state: Control, map_size=(0, 0)):
                 elif hasattr(display, 'btn_prev_algo_rect') and display.btn_prev_algo_rect.collidepoint(event.pos):
                     current_algo_idx = (current_algo_idx - 1) % len(algo_names_list)
                     launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    return
                     moved = True
                     continue
                 # Algorithm > button
                 elif hasattr(display, 'btn_next_algo_rect') and display.btn_next_algo_rect.collidepoint(event.pos):
                     current_algo_idx = (current_algo_idx + 1) % len(algo_names_list)
                     launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    return
                     moved = True
                     continue
 
@@ -539,11 +541,13 @@ def handle(state: Control, map_size=(0, 0)):
                     direction = -1 if (mods & pygame.KMOD_SHIFT) else 1
                     current_algo_idx = (current_algo_idx + direction) % len(algo_names_list)
                     launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    return
                     moved = True
                     continue
                 elif event.key == pygame.K_a:
                     current_algo_idx = (current_algo_idx + 1) % len(algo_names_list)
                     launch_solver_replay(available_levels[current_level_idx], algo_names_list[current_algo_idx])
+                    return
                     moved = True
                     continue
 
