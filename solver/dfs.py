@@ -103,7 +103,7 @@ class SolveResult(tuple):
 
 def solve(state_or_path):
     """
-    Entry point used by run.py and GUI Launcher.
+    Entry point được sử dụng bởi run.py và GUI Launcher.
     Trả về: SolveResult(path, expanded, actions, cost) hoặc (None, 0)
     """
     try:
@@ -122,7 +122,7 @@ search = solve
 
 
 def run_dfs(level_path):
-    """Run DFS and return solution and performance metrics."""
+    """Chạy thuật giải DFS và trả về các chỉ số giải pháp và hiệu năng"""
     tracemalloc.start()
     t0 = time.perf_counter()
     actions, path, expanded = _dfs(level_path)

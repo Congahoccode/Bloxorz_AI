@@ -23,6 +23,12 @@ class Level:
     lv13 = "./level/13.json"
     lv14 = "./level/14.json"
     lv15 = "./level/15.json"
+    lv16 = "./level/16.json"
+    lv17 = "./level/17.json"
+    lv18 = "./level/18.json"
+    lv19 = "./level/19.json"
+    lv20 = "./level/20.json"
+    lv21 = "./level/21.json"
 
 def draw_path_3D(solution, timesleep=0.5, level=Level.lv1, map_size = (0,0)):
     pygame.init()

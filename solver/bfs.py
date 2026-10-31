@@ -92,8 +92,8 @@ def _bfs(state_or_path):
 
 
 def bfs(state_or_path):
-    """Return a shortest action sequence (fewest moves) and the number of
-    expanded states, or (None, expanded) if the level has no solution."""
+    """Trả về chuỗi hành động ngắn nhất, ít bước di chuyển nhất và số lượng trạng thái mở rộng
+    hoặc không có, mở rộng, nếu cấp độ không có lời giải."""
     actions, _, expanded = _bfs(state_or_path)
     return actions, expanded
 
@@ -112,7 +112,7 @@ class SolveResult(tuple):
 
 def solve(state_or_path):
     """
-    Entry point used by run.py and GUI Launcher.
+    Entry point được sử dụng bởi run.py và Gui Launcher.
     Trả về: SolveResult(path, expanded, actions, cost) hoặc (None, 0)
     """
     try:
@@ -131,7 +131,7 @@ search = solve
 
 
 def run_bfs(level_path):
-    """Run BFS and return solution and performance metrics."""
+    """Chạy BFS và trả về các chỉ số giải pháp và hiệu năng."""
     tracemalloc.start()
     try:
         start_time = time.perf_counter()
