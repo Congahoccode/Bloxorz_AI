@@ -84,6 +84,9 @@ class Level:
     lv16 = "./level/16.json"
     lv17 = "./level/17.json"
     lv18 = "./level/18.json"
+    lv19 = "./level/19.json"
+    lv20 = "./level/20.json"
+    lv21 = "./level/21.json"
 
 
 def deltatime(start_time):
@@ -437,7 +440,7 @@ def draw_path_3D(solution, timesleep=0.60, level=Level.lv1, map_size=(0, 0), alg
                     p_state = Control(m_p)
                     p_state.Play_handle = True
                     handle(p_state, map_size=(m_p.size[0], m_p.size[1]))
-                    switch_level_and_algo(current_level, current_algo)
+                    return
                     continue
 
                 # Playback controls

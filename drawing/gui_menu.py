@@ -84,13 +84,7 @@ class GuiMenu:
         self.running = True
 
         # Fonts
-        pygame.font.init()
-        self.font_title = pygame.font.SysFont('Arial', 28, bold=True)
-        self.font_section = pygame.font.SysFont('Arial', 18, bold=True)
-        self.font_btn = pygame.font.SysFont('Arial', 15, bold=True)
-        self.font_sub = pygame.font.SysFont('Arial', 12)
-        self.font_badge = pygame.font.SysFont('Arial', 11, bold=True)
-        self.font_info = pygame.font.SysFont('Arial', 14)
+        self._init_fonts()
 
         # Levels available
         self.level_files = self._load_level_files()
@@ -102,6 +96,15 @@ class GuiMenu:
 
         # Build UI Elements
         self._init_buttons()
+
+    def _init_fonts(self):
+        pygame.font.init()
+        self.font_title = pygame.font.SysFont('Arial', 28, bold=True)
+        self.font_section = pygame.font.SysFont('Arial', 18, bold=True)
+        self.font_btn = pygame.font.SysFont('Arial', 15, bold=True)
+        self.font_sub = pygame.font.SysFont('Arial', 12)
+        self.font_badge = pygame.font.SysFont('Arial', 11, bold=True)
+        self.font_info = pygame.font.SysFont('Arial', 14)
 
     def _load_level_files(self):
         import re
@@ -163,13 +166,14 @@ class GuiMenu:
 
         self.btn_exit = Button((790, 575, 150, 54), "EXIT", "")
 
-        # 5. Level grid buttons (Right column) - Clean names, no tags
+        # 5. Level grid buttons (Right column) - Clean names, no tags, auto-fit rows
         self.btn_levels = []
-        cols = 4
-        btn_w = 118
-        btn_h = 32
-        gap_x = 8
-        gap_y = 6
+        n_lvls = len(self.level_files)
+        cols = 4 if n_lvls <= 24 else 5
+        btn_w = 118 if cols == 4 else 93
+        btn_h = 31 if n_lvls <= 24 else 28
+        gap_x = 8 if cols == 4 else 7
+        gap_y = 6 if n_lvls <= 24 else 5
         start_x = 445
         start_y = 110
 
@@ -188,6 +192,9 @@ class GuiMenu:
 
             btn = Button((bx, by, btn_w, btn_h), display_name, callback_data=i)
             self.btn_levels.append(btn)
+
+        num_rows = (n_lvls + cols - 1) // cols if n_lvls > 0 else 1
+        self.level_grid_bottom = start_y + num_rows * (btn_h + gap_y) - gap_y
 
         if self.btn_levels:
             self.btn_levels[0].selected = True
@@ -310,12 +317,14 @@ class GuiMenu:
             btn.draw(surface, mouse_pos, self.font_btn)
 
         # Launch Setup Card
-        card_rect = pygame.Rect(445, 290, 495, 265)
+        card_top = max(290, getattr(self, 'level_grid_bottom', 260) + 14)
+        card_h = max(160, 558 - card_top)
+        card_rect = pygame.Rect(445, card_top, 495, card_h)
         pygame.draw.rect(surface, C_PANEL_LIGHT, card_rect, border_radius=8)
         pygame.draw.rect(surface, C_BORDER, card_rect, width=1, border_radius=8)
 
         card_title = self.font_section.render("SETUP & LAUNCH", True, C_TEXT)
-        surface.blit(card_title, (465, 308))
+        surface.blit(card_title, (465, card_top + 14))
 
         cur_path = self.level_files[self.selected_level_idx] if (0 <= self.selected_level_idx < len(self.level_files)) else ""
         lvl_bname = os.path.basename(cur_path) if cur_path else "None"
@@ -341,7 +350,8 @@ class GuiMenu:
         setup_details.append("")
         setup_details.append("Click START to launch the game.")
 
-        dy = 350
+        dy = card_top + 48
+        step_y = 26 if card_h >= 210 else 22
         for d in setup_details:
             if d:
                 is_key = d.startswith("- ")
@@ -349,7 +359,7 @@ class GuiMenu:
                 font_to_use = self.font_btn if is_key else self.font_info
                 dsurf = font_to_use.render(d, True, col)
                 surface.blit(dsurf, (465, dy))
-            dy += 28
+            dy += step_y
 
         # Action Buttons (Start / Exit) - located right under the setup card
         self.btn_start.draw(surface, mouse_pos, self.font_btn)
@@ -646,9 +656,11 @@ class GuiMenu:
     def run(self):
         """Main loop of the GUI menu."""
         pygame.init()
+        self._init_fonts()
         self.screen = pygame.display.set_mode(self.size)
         pygame.display.set_caption("Bloxorz AI - Menu Launcher")
         self.clock = pygame.time.Clock()
+        self.running = True
 
         while self.running:
             for event in pygame.event.get():
