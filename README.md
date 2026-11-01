@@ -1,38 +1,22 @@
-# Bloxorz game
+## Thông tin chung
 
-https://user-images.githubusercontent.com/40039040/209445919-c5dafdf2-c48e-48f6-9128-ea8818c52eb9.mp4
+Dự án xây dựng môi trường trò chơi **Bloxorz 3D** và cài đặt, đánh giá hiệu năng **4 thuật toán tìm kiếm AI** (**BFS**, **DFS**, **UCS**, **A\***) trên bộ **21 màn chơi** (bao gồm sàn thường, sàn cam mỏng `fragile`, công tắc mềm `swQ`, công tắc nặng `swX`, công tắc phân tách khối `swO` và hệ thống cầu đóng/mở động).
 
-## General Info
+## Yêu Cầu Hệ Thống & Cài Đặt Thư Viện
 
-This repo is a part of student project at Skoltech for the course Planning Algorithms in Artificial Intelligence. We implemented few different descrete planning algorithms, conducted performance tests and compared them.
+- **Python:** Phiên bản `>= 3.8` (khuyến nghị Python `3.10` – `3.14`).
+- Di chuyển vào thư mục chứa mã nguồn (`Source`) và cài đặt các thư viện trong `requirements.txt`:
 
-## Requirements Lib
-
-```
-$ pip3 install -r requirement.txt
-```
-
-## Run
-
-```
-$ python3 run.py path_to_level options view
+```bash
+pip install -r requirements.txt
 ```
 
-* `path_to_level`: dir path to json file, like `level/1.json`
-* `options`: dfs, bfs, hill, astar, dijkstra or handle to play the game yourself
-* `view`:
-    + 1 for view Step By Step on Consoles and 3D View (All Step of Algorithm)
-    + 2 for view only on Consoles (Result of Path)
-    + 3 for view only on 3D View (Result of Path)
-    + 4 for view with performance metrics printout
+## Hướng Dẫn Chạy Chương Trình
 
-Example:
-```
-$ python3 run.py ./level/1.json astar 2
-```
-### Value learning
+Bạn có thể chạy chương trình thông qua file **`main.py`** theo cách dưới đây:
 
-To run Value Learning you need to run another file:
+```bash
+python main.py
 ```
-$ python3 value_learning.py path_to_level
-```
+
+

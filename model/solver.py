@@ -451,7 +451,7 @@ def handle(state: Control, map_size=(0, 0)):
 
     def launch_solver_replay(lvl, algo_str):
         try:
-            from run import run_solver, draw_path_3D, algorithm_by_str
+            from main import run_solver, draw_path_3D, algorithm_by_str
             algo_enum = algorithm_by_str.get(algo_str.lower(), 4)
             sol, metrics = run_solver(lvl, algo_enum)
             m = maps(lvl)
